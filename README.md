@@ -23,5 +23,6 @@ Development checks:
 ```bash
 bash -n install.sh
 python3 scripts/validate_manifest.py examples/manifest.example.json
+python3 scripts/build_release.py --config examples/release-config.example.json --check-only
 python3 -m unittest discover -s tests
 ```

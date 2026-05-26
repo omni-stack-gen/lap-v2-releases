@@ -137,7 +137,8 @@ The target operator should be able to run one installer, answer a small number o
 
 - Release assets will be published from this repository or its release process.
 - The daemon runtime tarball exposes a `bin/lap` entrypoint relative to the install root.
-- Pack projects currently need to recreate the validated shape under `/data/lap-packages`, including `pack.sh`, `Pack_FD_F1_R88R30_ADB_SPINOR`, and `Pack_RL_F1s_DV10_2_SPINOR`.
+- Pack projects currently need to recreate the validated shape under `/data/lap-packages`, including `.venv`, `pack.sh`, `Pack_FD_F1_R88R30_ADB_SPINOR`, and `Pack_RL_F1s_DV10_2_SPINOR`.
+- The local source directory for pack release assets is `/data/lch/work/omni-stack-gen/lap-packages`.
 - The target Linux host is Ubuntu-like and uses systemd.
 - Windows bootstrapper work may later reuse this release manifest, but is not part of v1.
 
