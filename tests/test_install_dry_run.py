@@ -40,7 +40,7 @@ class InstallDryRunTests(unittest.TestCase):
         env = {
             **os.environ,
             "LAP_INSTALL_DRY_RUN": "1",
-            "LAP_RELEASE_REPO": "example/lap-daemon-releases",
+            "LAP_RELEASE_PACKAGE_BASE": "http://gitlab.example.com/api/v4/projects/5/packages/generic/lap-v2-release",
             "LAP_DAEMON_VERSION": "v1.2.3",
             "SUDO_USER": os.environ.get("USER", "laptest"),
         }
@@ -55,7 +55,7 @@ class InstallDryRunTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
         self.assertEqual(
             result.stdout.strip(),
-            "https://github.com/example/lap-daemon-releases/releases/download/v1.2.3/manifest.json",
+            "http://gitlab.example.com/api/v4/projects/5/packages/generic/lap-v2-release/v1.2.3/manifest.json",
         )
 
 

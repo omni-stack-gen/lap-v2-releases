@@ -15,10 +15,10 @@ host into the expected LAP v2 runtime shape:
 Customer-facing install shape:
 
 ```bash
-curl -fsSL https://github.com/omni-stack-gen/lap-daemon-releases/releases/latest/download/install.sh | sudo bash
+curl -fsSL http://192.168.1.108:8090/api/v4/projects/5/packages/generic/lap-v2-release/latest/install.sh | sudo bash
 ```
 
-The customer release repository should only contain install docs and release
+The customer-facing release project should only expose install docs and release
 artifacts. Source code and raw build inputs stay in private/internal repos.
 
 Start here:
