@@ -33,11 +33,30 @@ is_dry_run() {
   [[ "${LAP_INSTALL_DRY_RUN:-0}" == "1" ]]
 }
 
+read_prompt_line() {
+  local prompt="$1"
+  local answer
+  local tty_fd
+  if { [[ -t 1 ]] || [[ -t 2 ]]; } && { exec {tty_fd}<>/dev/tty; } 2>/dev/null; then
+    printf '%s' "$prompt" >&"$tty_fd"
+    IFS= read -r answer <&"$tty_fd" || {
+      exec {tty_fd}>&-
+      return 1
+    }
+    exec {tty_fd}>&-
+  else
+    IFS= read -r -p "$prompt" answer || return 1
+  fi
+  printf '%s' "$answer"
+}
+
 prompt_default() {
   local prompt="$1"
   local default="$2"
   local answer
-  read -r -p "$prompt [$default]: " answer
+  if ! answer="$(read_prompt_line "$prompt [$default]: ")"; then
+    answer=""
+  fi
   if [[ -z "$answer" ]]; then
     printf '%s' "$default"
   else
@@ -55,8 +74,11 @@ prompt_yes_no() {
     *) die "invalid yes/no default: $default" ;;
   esac
   while true; do
-    read -r -p "$prompt [$suffix]: " answer
-    answer="${answer:-$default}"
+    if ! answer="$(read_prompt_line "$prompt [$suffix]: ")"; then
+      answer="$default"
+    else
+      answer="${answer:-$default}"
+    fi
     case "$answer" in
       y|Y|yes|YES) return 0 ;;
       n|N|no|NO) return 1 ;;
@@ -423,7 +445,9 @@ pair_and_start() {
   fi
 
   local pair_code
-  read -r -p "Pair code: " pair_code
+  if ! pair_code="$(read_prompt_line "Pair code: ")"; then
+    pair_code=""
+  fi
   if [[ -z "$pair_code" ]]; then
     log "empty pair code; skipping pairing"
     return
@@ -625,6 +649,6 @@ EOF
   fi
 }
 
-if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+if [[ -z "${BASH_SOURCE[0]-}" || "${BASH_SOURCE[0]-}" == "$0" ]]; then
   main "$@"
 fi
