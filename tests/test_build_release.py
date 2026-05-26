@@ -107,6 +107,8 @@ class BuildReleaseTests(unittest.TestCase):
 
             manifest = out_dir / "v-test" / "manifest.json"
             self.assertTrue(manifest.exists())
+            self.assertTrue((out_dir / "v-test" / "install.sh").exists())
+            self.assertTrue((out_dir / "v-test" / "SHA256SUMS").exists())
             self.assertTrue((out_dir / "v-test" / "lap-pack-projects.tar.gz").exists())
 
             validate = subprocess.run(
@@ -121,6 +123,11 @@ class BuildReleaseTests(unittest.TestCase):
                 names = set(tf.getnames())
             self.assertIn("pack.sh", names)
             self.assertIn("Pack_FD_F1_R88R30_ADB_SPINOR", names)
+
+            sums = (out_dir / "v-test" / "SHA256SUMS").read_text()
+            self.assertIn("install.sh", sums)
+            self.assertIn("manifest.json", sums)
+            self.assertIn("lap-pack-projects.tar.gz", sums)
 
     def test_validate_sources_rejects_wrong_pack_shape(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -175,6 +182,7 @@ class BuildReleaseTests(unittest.TestCase):
             manifest = json.loads((out_dir / "v-override" / "manifest.json").read_text())
             self.assertEqual(manifest["release"]["version"], "v-override")
             self.assertEqual(manifest["defaults"]["saas_url"], "http://192.0.2.20:38080")
+            self.assertEqual(manifest["assets"][0]["version"], "v-override")
             self.assertEqual(
                 manifest["assets"][0]["url"],
                 "http://192.0.2.10:18080/lap-daemon-runtime.tar.gz",

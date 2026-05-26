@@ -19,9 +19,9 @@ class InstallDryRunTests(unittest.TestCase):
             "LAP_RELEASE_MANIFEST_URL": f"file://{EXAMPLE}",
             "SUDO_USER": os.environ.get("USER", "laptest"),
         }
-        # Prompts: manifest URL, user, install root, state dir, workspace,
-        # packages, toolchains, proceed, pair now.
-        answers = "\n\n\n\n\n\n\ny\nn\n"
+        # Prompts: user, install root, state dir, workspace, packages,
+        # toolchains, proceed, pair now.
+        answers = "\n\n\n\n\n\ny\nn\n"
         result = subprocess.run(
             ["bash", str(INSTALLER)],
             input=answers,
@@ -35,6 +35,28 @@ class InstallDryRunTests(unittest.TestCase):
         self.assertIn("DRY RUN complete", result.stdout)
         self.assertIn("lap-daemon-runtime", result.stdout)
         self.assertIn("pair status:      skipped", result.stdout)
+
+    def test_installer_defaults_to_release_only_manifest_url(self) -> None:
+        env = {
+            **os.environ,
+            "LAP_INSTALL_DRY_RUN": "1",
+            "LAP_RELEASE_REPO": "example/lap-daemon-releases",
+            "LAP_DAEMON_VERSION": "v1.2.3",
+            "SUDO_USER": os.environ.get("USER", "laptest"),
+        }
+        result = subprocess.run(
+            ["bash", "-c", f"source {INSTALLER}; manifest_url"],
+            capture_output=True,
+            text=True,
+            env=env,
+            check=False,
+            timeout=20,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        self.assertEqual(
+            result.stdout.strip(),
+            "https://github.com/example/lap-daemon-releases/releases/download/v1.2.3/manifest.json",
+        )
 
 
 if __name__ == "__main__":

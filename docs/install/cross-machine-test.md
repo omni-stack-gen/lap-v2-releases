@@ -1,15 +1,18 @@
 # Cross-Machine Test Release
 
-Use this path when one Ubuntu host builds the release assets and another Ubuntu
-host installs the LAP daemon. The source of truth is the local GitLab project:
+Use this internal path when one Ubuntu host builds release assets and another
+Ubuntu host installs the LAP daemon before customer publishing. Customer
+installs should use `docs/install/customer-release.md`.
+
+The internal source of truth is the local GitLab project:
 
 ```text
 http://<gitlab-host>:8090/canhaolin/lap-v2-release
 ```
 
-Do not commit the generated tarballs into Git. Publish them to the GitLab
-Generic Package Registry, then make the installer consume that registry URL via
-the generated manifest.
+Do not commit generated tarballs into Git. Publish them to the GitLab Generic
+Package Registry, then make the installer consume that registry URL via the
+generated manifest.
 
 ## 1. Prerequisites
 
@@ -98,6 +101,7 @@ Expected files:
 ```text
 install.sh
 manifest.json
+SHA256SUMS
 lap-daemon-runtime.tar.gz
 lap-pack-projects.tar.gz
 lap-toolchains.tar.gz

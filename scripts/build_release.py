@@ -12,6 +12,7 @@ import argparse
 import hashlib
 import json
 import os
+import shutil
 import tarfile
 from dataclasses import dataclass, replace
 from datetime import datetime, timezone
@@ -184,14 +185,29 @@ def asset_url(base_url: str, dist_dir: Path, archive_name: str) -> str:
     return f"{resolved.rstrip('/')}/{archive_name}"
 
 
-def build_release(config: ReleaseConfig, out_dir: Path) -> Path:
+def with_release_version(config: ReleaseConfig, version: str) -> ReleaseConfig:
+    return replace(
+        config,
+        version=version,
+        assets=tuple(replace(asset, version=version) for asset in config.assets),
+    )
+
+
+def write_sha256sums(paths: list[Path], dest: Path) -> None:
+    lines = [f"{sha256_file(path)}  {path.name}" for path in sorted(paths, key=lambda p: p.name)]
+    dest.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+
+def build_release(config: ReleaseConfig, out_dir: Path, installer: Path) -> Path:
     dist_dir = out_dir / config.version
     dist_dir.mkdir(parents=True, exist_ok=True)
 
     manifest_assets: list[dict[str, Any]] = []
+    release_files: list[Path] = []
     for asset in config.assets:
         archive_path = dist_dir / asset.archive_name
         make_tarball(asset.source_dir, archive_path)
+        release_files.append(archive_path)
         manifest_assets.append(
             {
                 "id": asset.id,
@@ -222,6 +238,14 @@ def build_release(config: ReleaseConfig, out_dir: Path) -> Path:
         json.dumps(manifest, indent=2, sort_keys=True) + "\n",
         encoding="utf-8",
     )
+    release_files.append(manifest_path)
+
+    installer_dest = dist_dir / "install.sh"
+    shutil.copy2(installer, installer_dest)
+    installer_dest.chmod(0o755)
+    release_files.append(installer_dest)
+
+    write_sha256sums(release_files, dist_dir / "SHA256SUMS")
     return manifest_path
 
 
@@ -229,6 +253,12 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--config", type=Path, required=True)
     parser.add_argument("--out-dir", type=Path, default=Path("dist"))
+    parser.add_argument(
+        "--installer",
+        type=Path,
+        default=Path(__file__).resolve().parents[1] / "install.sh",
+        help="Installer script to copy into the release directory.",
+    )
     parser.add_argument(
         "--check-only",
         action="store_true",
@@ -259,7 +289,7 @@ def main() -> int:
     try:
         config = load_config(args.config)
         if args.release_version:
-            config = replace(config, version=args.release_version)
+            config = with_release_version(config, args.release_version)
         if args.asset_base_url:
             config = replace(config, asset_base_url=args.asset_base_url)
         if args.default_saas_url:
@@ -271,7 +301,9 @@ def main() -> int:
         if args.validate_sources:
             print(f"release sources ok: {args.config}")
             return 0
-        manifest_path = build_release(config, args.out_dir)
+        if not args.installer.is_file():
+            raise BuildConfigError(f"installer is not a file: {args.installer}")
+        manifest_path = build_release(config, args.out_dir, args.installer)
     except (OSError, json.JSONDecodeError, BuildConfigError) as exc:
         print(f"release build error: {exc}", file=os.sys.stderr)
         return 2

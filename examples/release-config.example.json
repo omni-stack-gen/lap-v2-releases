@@ -1,7 +1,7 @@
 {
   "version": "v0.1.0-local",
   "default_saas_url": "https://api.omnistack.io",
-  "asset_base_url": "file://{dist_dir}",
+  "asset_base_url": "https://github.com/omni-stack-gen/lap-daemon-releases/releases/download/v0.1.0-local",
   "assets": [
     {
       "id": "lap-daemon-runtime",

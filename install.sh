@@ -2,7 +2,7 @@
 set -Eeuo pipefail
 
 SCRIPT_VERSION="0.1.0-dev"
-DEFAULT_REMOTE_MANIFEST_URL="https://github.com/canhaolin/lap-v2-release/releases/latest/download/manifest.json"
+DEFAULT_RELEASE_REPO="omni-stack-gen/lap-daemon-releases"
 APT_PACKAGES=(
   ca-certificates
   curl
@@ -65,27 +65,36 @@ prompt_yes_no() {
   done
 }
 
-script_dir() {
-  local src="${BASH_SOURCE[0]:-}"
-  if [[ -n "$src" && -f "$src" ]]; then
-    cd -- "$(dirname -- "$src")" && pwd
+release_repo() {
+  printf '%s' "${LAP_RELEASE_REPO:-$DEFAULT_RELEASE_REPO}"
+}
+
+release_version_pin() {
+  printf '%s' "${LAP_DAEMON_VERSION:-${LAP_RELEASE_VERSION:-}}"
+}
+
+release_base_url() {
+  if [[ -n "${LAP_RELEASE_BASE_URL:-}" ]]; then
+    printf '%s' "${LAP_RELEASE_BASE_URL%/}"
+    return
+  fi
+
+  local repo version
+  repo="$(release_repo)"
+  version="$(release_version_pin)"
+  if [[ -n "$version" ]]; then
+    printf 'https://github.com/%s/releases/download/%s' "$repo" "$version"
   else
-    pwd
+    printf 'https://github.com/%s/releases/latest/download' "$repo"
   fi
 }
 
-default_manifest_url() {
+manifest_url() {
   if [[ -n "${LAP_RELEASE_MANIFEST_URL:-}" ]]; then
     printf '%s' "$LAP_RELEASE_MANIFEST_URL"
     return
   fi
-  local dir
-  dir="$(script_dir)"
-  if [[ -f "$dir/examples/manifest.example.json" ]]; then
-    printf 'file://%s/examples/manifest.example.json' "$dir"
-  else
-    printf '%s' "$DEFAULT_REMOTE_MANIFEST_URL"
-  fi
+  printf '%s/manifest.json' "$(release_base_url)"
 }
 
 require_no_args() {
@@ -139,7 +148,7 @@ download_file() {
   if [[ "$url" == file://* ]]; then
     cp -- "${url#file://}" "$dest"
   elif [[ "$url" == http://* || "$url" == https://* ]]; then
-    curl -fL --retry 3 --connect-timeout 20 --output "$dest" "$url"
+    curl -fsSL --retry 3 --connect-timeout 20 --output "$dest" "$url"
   elif [[ "$url" == /* || "$url" == ./* || "$url" == ../* ]]; then
     cp -- "$url" "$dest"
   else
@@ -542,13 +551,14 @@ main() {
 
   log "LAP daemon installer $SCRIPT_VERSION"
 
-  local manifest_url manifest_path release_version default_saas_url
-  manifest_url="$(prompt_default "Release manifest URL" "$(default_manifest_url)")"
+  local selected_manifest_url manifest_path release_version default_saas_url
+  selected_manifest_url="$(manifest_url)"
+  log "release manifest: $selected_manifest_url"
 
   INSTALL_TMP_DIR="$(mktemp -d)"
   trap 'rm -rf "$INSTALL_TMP_DIR"' EXIT
   manifest_path="$INSTALL_TMP_DIR/manifest.json"
-  fetch_manifest "$manifest_url" "$manifest_path"
+  fetch_manifest "$selected_manifest_url" "$manifest_path"
   validate_manifest "$manifest_path"
 
   release_version="$(manifest_value "$manifest_path" "release.version")"
@@ -614,4 +624,6 @@ EOF
   fi
 }
 
-main "$@"
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+  main "$@"
+fi
