@@ -1,0 +1,47 @@
+{
+  "schema_version": 1,
+  "release": {
+    "version": "v0.1.0-example",
+    "created_at": "2026-05-26T00:00:00Z"
+  },
+  "defaults": {
+    "saas_url": "https://api.omnistack.io"
+  },
+  "assets": [
+    {
+      "id": "lap-daemon-runtime",
+      "kind": "daemon_runtime",
+      "version": "v0.1.0-example",
+      "url": "file:///replace-me/lap-daemon-runtime.tar.gz",
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "archive": "tar.gz",
+      "target": "install_root",
+      "strip_components": 0
+    },
+    {
+      "id": "lap-pack-projects",
+      "kind": "pack_projects",
+      "version": "v0.1.0-example",
+      "url": "file:///replace-me/lap-pack-projects.tar.gz",
+      "sha256": "1111111111111111111111111111111111111111111111111111111111111111",
+      "archive": "tar.gz",
+      "target": "packages_root",
+      "strip_components": 0,
+      "required_paths": [
+        "pack.sh",
+        "Pack_FD_F1_R88R30_ADB_SPINOR",
+        "Pack_RL_F1s_DV10_2_SPINOR"
+      ]
+    },
+    {
+      "id": "lap-toolchains",
+      "kind": "toolchain",
+      "version": "v0.1.0-example",
+      "url": "file:///replace-me/lap-toolchains.tar.gz",
+      "sha256": "2222222222222222222222222222222222222222222222222222222222222222",
+      "archive": "tar.gz",
+      "target": "toolchain_root",
+      "strip_components": 0
+    }
+  ]
+}
