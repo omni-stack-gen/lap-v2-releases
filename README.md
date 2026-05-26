@@ -16,6 +16,7 @@ Start here:
 
 - [Linux installer requirements](docs/requirements/2026-05-26-lap-daemon-installer-v1.md)
 - [Linux install guide](docs/install/linux-production-vm.md)
+- [Cross-machine test release guide](docs/install/cross-machine-test.md)
 - [Windows USB notes](docs/install/windows-usbipd-notes.md)
 
 Development checks:

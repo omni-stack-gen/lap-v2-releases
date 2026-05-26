@@ -13,7 +13,7 @@ import hashlib
 import json
 import os
 import tarfile
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -239,10 +239,31 @@ def main() -> int:
         action="store_true",
         help="Validate source dirs and required paths without writing tarballs.",
     )
+    parser.add_argument(
+        "--asset-base-url",
+        help=(
+            "Override config.asset_base_url in the generated manifest. "
+            "Use this when serving a test release over HTTP from another host."
+        ),
+    )
+    parser.add_argument(
+        "--default-saas-url",
+        help="Override config.default_saas_url in the generated manifest.",
+    )
+    parser.add_argument(
+        "--release-version",
+        help="Override config.version and the generated manifest release.version.",
+    )
     args = parser.parse_args()
 
     try:
         config = load_config(args.config)
+        if args.release_version:
+            config = replace(config, version=args.release_version)
+        if args.asset_base_url:
+            config = replace(config, asset_base_url=args.asset_base_url)
+        if args.default_saas_url:
+            config = replace(config, default_saas_url=args.default_saas_url)
         if args.check_only:
             print(f"release config ok: {args.config}")
             return 0
