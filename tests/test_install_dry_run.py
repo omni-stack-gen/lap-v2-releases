@@ -58,6 +58,62 @@ class InstallDryRunTests(unittest.TestCase):
             "http://gitlab.example.com/api/v4/projects/5/packages/generic/lap-v2-release/v1.2.3/manifest.json",
         )
 
+    def test_installer_rejects_typo_home_path(self) -> None:
+        env = {
+            **os.environ,
+            "LAP_INSTALL_DRY_RUN": "1",
+            "LAP_RELEASE_MANIFEST_URL": f"file://{EXAMPLE}",
+            "SUDO_USER": "dpower",
+        }
+        # Prompts: user, install root, state dir. State dir intentionally
+        # points at a misspelled home directory.
+        answers = "dpower\n\n/home/dopwer/lap_workspace/\n"
+        result = subprocess.run(
+            ["bash", str(INSTALLER)],
+            input=answers,
+            capture_output=True,
+            text=True,
+            env=env,
+            check=False,
+            timeout=20,
+        )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("State dir points under /home/dopwer", result.stderr)
+        self.assertIn("Did you mean /home/dpower", result.stderr)
+
+    def test_installer_normalizes_trailing_slash_defaults(self) -> None:
+        env = {
+            **os.environ,
+            "LAP_INSTALL_DRY_RUN": "1",
+            "LAP_RELEASE_MANIFEST_URL": f"file://{EXAMPLE}",
+            "SUDO_USER": "dpower",
+        }
+        answers = (
+            "dpower\n"
+            "\n"
+            "/home/dpower/lap_workspace/\n"
+            "\n"
+            "/home/dpower/lap-packages/\n"
+            "\n"
+            "y\n"
+            "n\n"
+        )
+        result = subprocess.run(
+            ["bash", str(INSTALLER)],
+            input=answers,
+            capture_output=True,
+            text=True,
+            env=env,
+            check=False,
+            timeout=20,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        self.assertIn("state dir:        /home/dpower/lap_workspace", result.stdout)
+        self.assertIn(
+            "workspace root:   /home/dpower/lap_workspace/workspace",
+            result.stdout,
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

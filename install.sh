@@ -156,6 +156,40 @@ validate_abs_path() {
   [[ "$path" != *[$'\t\r\n ']* ]] || die "$name must not contain whitespace: $path"
 }
 
+normalize_abs_path() {
+  local path="$1"
+  python3 - "$path" <<'PY'
+import os
+import sys
+
+print(os.path.normpath(sys.argv[1]))
+PY
+}
+
+validate_home_owner_path() {
+  local name="$1"
+  local path="$2"
+  local user="$3"
+  local home_user
+
+  case "$path" in
+    /home/*/*|/home/*)
+      home_user="${path#/home/}"
+      home_user="${home_user%%/*}"
+      if [[ "$home_user" != "$user" ]]; then
+        die "$name points under /home/$home_user, but daemon user is '$user'. Did you mean /home/$user?"
+      fi
+      ;;
+  esac
+}
+
+validate_install_path() {
+  local name="$1"
+  local path="$2"
+  validate_abs_path "$name" "$path"
+  validate_home_owner_path "$name" "$path" "$DAEMON_USER"
+}
+
 dir_nonempty() {
   local path="$1"
   [[ -d "$path" ]] || return 1
@@ -598,15 +632,21 @@ main() {
 
   INSTALL_ROOT="$(prompt_default "Install root" "$default_home/lap")"
   STATE_DIR="$(prompt_default "State dir" "/data/lap")"
+  INSTALL_ROOT="$(normalize_abs_path "$INSTALL_ROOT")"
+  STATE_DIR="$(normalize_abs_path "$STATE_DIR")"
   WORKSPACE_ROOT="$(prompt_default "Project workspace root" "$STATE_DIR/workspace")"
   PACKAGES_ROOT="$(prompt_default "Pack projects dir" "/data/lap-packages")"
   TOOLCHAIN_ROOT="$(prompt_default "Toolchain dir" "$default_home/toolchains")"
 
-  validate_abs_path "Install root" "$INSTALL_ROOT"
-  validate_abs_path "State dir" "$STATE_DIR"
-  validate_abs_path "Project workspace root" "$WORKSPACE_ROOT"
-  validate_abs_path "Pack projects dir" "$PACKAGES_ROOT"
-  validate_abs_path "Toolchain dir" "$TOOLCHAIN_ROOT"
+  WORKSPACE_ROOT="$(normalize_abs_path "$WORKSPACE_ROOT")"
+  PACKAGES_ROOT="$(normalize_abs_path "$PACKAGES_ROOT")"
+  TOOLCHAIN_ROOT="$(normalize_abs_path "$TOOLCHAIN_ROOT")"
+
+  validate_install_path "Install root" "$INSTALL_ROOT"
+  validate_install_path "State dir" "$STATE_DIR"
+  validate_install_path "Project workspace root" "$WORKSPACE_ROOT"
+  validate_install_path "Pack projects dir" "$PACKAGES_ROOT"
+  validate_install_path "Toolchain dir" "$TOOLCHAIN_ROOT"
 
   cat <<EOF
 
