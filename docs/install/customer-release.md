@@ -14,6 +14,18 @@ Registry version, verifies each asset hash declared by the manifest, installs
 the daemon runtime, installs pack projects and toolchains, writes `lap.service`,
 and optionally pairs the daemon during the same flow.
 
+During pairing, enter the SaaS pair HTTP URL, not the daemon WebSocket URL. In
+the current LAN test stack:
+
+```text
+SaaS HTTP URL:          http://192.168.1.108:38082
+Daemon WebSocket URL:   ws://192.168.1.108:38081/v2/wss
+lap_agent MCP URL:      http://192.168.1.108:38080/mcp
+```
+
+The WebSocket URL is returned by the pair API and written into the daemon
+identity. Do not paste it into the installer prompt.
+
 ## Pin A Version
 
 ```bash
@@ -47,7 +59,7 @@ curl -fsSL <mirror>/install.sh \
 
 Customers can see whatever is inside release assets after installation:
 
-- daemon binary under the selected install root
+- daemon runtime wrapper and Python venv under the selected install root
 - pack projects under `/data/lap-packages`
 - toolchains under the selected toolchain directory
 - generated systemd unit and install report

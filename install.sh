@@ -190,6 +190,24 @@ validate_install_path() {
   validate_home_owner_path "$name" "$path" "$DAEMON_USER"
 }
 
+validate_saas_url() {
+  local url="$1"
+  case "$url" in
+    http://*|https://*) ;;
+    ws://*|wss://*)
+      die "SaaS URL must be an HTTP pair API base URL, not a WebSocket endpoint. Use http://host:port for pairing; the daemon receives ws_endpoint after pairing."
+      ;;
+    *)
+      die "SaaS URL must start with http:// or https://: $url"
+      ;;
+  esac
+  case "$url" in
+    */v2/wss|*/v2/wss/|*/mcp|*/mcp/)
+      die "SaaS URL must be the HTTP pair API base URL, not a daemon WebSocket or MCP endpoint: $url"
+      ;;
+  esac
+}
+
 dir_nonempty() {
   local path="$1"
   [[ -d "$path" ]] || return 1
@@ -431,6 +449,10 @@ install_assets() {
 write_systemd_unit() {
   local unit="/etc/systemd/system/lap.service"
   local lap_bin="$INSTALL_ROOT/bin/lap"
+  local insecure_ws_line=""
+  if [[ "${ALLOW_INSECURE_WS:-false}" == "true" ]]; then
+    insecure_ws_line="Environment=LAP_ALLOW_INSECURE_WS=1"
+  fi
   if is_dry_run; then
     log "dry run: would write $unit with ExecStart=$lap_bin run"
     return
@@ -457,6 +479,7 @@ Environment=LAP_STATE_DIR=$STATE_DIR
 Environment=LAP_WORKSPACE_ROOT=$WORKSPACE_ROOT
 Environment=LAP_PACKAGES_ROOT=$PACKAGES_ROOT
 Environment=LAP_TOOLCHAINS_ROOT=$TOOLCHAIN_ROOT
+$insecure_ws_line
 StandardOutput=journal
 StandardError=journal
 SyslogIdentifier=lap
@@ -473,20 +496,29 @@ pair_and_start() {
   PAIR_STATUS="skipped"
   PROXY_ID=""
   SERVICE_STARTED="false"
+  PAIR_WS_ENDPOINT=""
 
-  if ! prompt_yes_no "Pair daemon now" "y"; then
+  if ! prompt_yes_no "Pair daemon now (enter n here to skip)" "y"; then
     return
   fi
 
   local pair_code
-  if ! pair_code="$(read_prompt_line "Pair code: ")"; then
+  if ! pair_code="$(read_prompt_line "Pair code (leave empty to skip): ")"; then
     pair_code=""
   fi
   if [[ -z "$pair_code" ]]; then
     log "empty pair code; skipping pairing"
     return
   fi
-  saas_url="$(prompt_default "SaaS URL" "$saas_url")"
+  case "$pair_code" in
+    n|N|no|NO)
+      log "pair code '$pair_code' means skip; pairing skipped"
+      return
+      ;;
+  esac
+  saas_url="$(prompt_default "SaaS HTTP URL" "$saas_url")"
+  saas_url="${saas_url%/}"
+  validate_saas_url "$saas_url"
 
   if is_dry_run; then
     PAIR_STATUS="dry_run"
@@ -511,6 +543,11 @@ pair_and_start() {
   fi
   PAIR_STATUS="paired"
   PROXY_ID="$(printf '%s\n' "$pair_output" | sed -n 's/^paired\. proxy_id=//p' | tail -1)"
+  PAIR_WS_ENDPOINT="$(printf '%s\n' "$pair_output" | sed -n 's/^ws_endpoint=//p' | tail -1)"
+  if [[ "$PAIR_WS_ENDPOINT" == ws://* ]]; then
+    ALLOW_INSECURE_WS="true"
+    write_systemd_unit
+  fi
 
   systemctl enable --now lap.service
   SERVICE_STARTED="true"
@@ -598,7 +635,7 @@ Useful commands:
   sudo journalctl -u lap.service -f
 
 If pairing was skipped:
-  sudo -u $DAEMON_USER LAP_STATE_DIR=$STATE_DIR $INSTALL_ROOT/bin/lap pair <PAIR_CODE> --saas-url <SAAS_URL>
+  sudo -u $DAEMON_USER LAP_STATE_DIR=$STATE_DIR $INSTALL_ROOT/bin/lap pair <PAIR_CODE> --saas-url <SAAS_HTTP_URL>
   sudo systemctl enable --now lap.service
 EOF
 }

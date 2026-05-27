@@ -114,6 +114,72 @@ class InstallDryRunTests(unittest.TestCase):
             result.stdout,
         )
 
+    def test_installer_rejects_websocket_saas_url(self) -> None:
+        env = {
+            **os.environ,
+            "LAP_INSTALL_DRY_RUN": "1",
+            "LAP_RELEASE_MANIFEST_URL": f"file://{EXAMPLE}",
+            "SUDO_USER": "dpower",
+        }
+        # Prompts: user, install root, state dir, workspace, packages,
+        # toolchains, proceed, pair now, pair code, SaaS HTTP URL.
+        answers = (
+            "dpower\n"
+            "\n"
+            "/home/dpower/lap_workspace\n"
+            "\n"
+            "/home/dpower/lap-packages\n"
+            "\n"
+            "y\n"
+            "y\n"
+            "DEV-12345\n"
+            "ws://192.168.1.108:38081/v2/wss\n"
+        )
+        result = subprocess.run(
+            ["bash", str(INSTALLER)],
+            input=answers,
+            capture_output=True,
+            text=True,
+            env=env,
+            check=False,
+            timeout=20,
+        )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("SaaS URL must be an HTTP pair API base URL", result.stderr)
+
+    def test_installer_treats_no_as_pair_code_skip(self) -> None:
+        env = {
+            **os.environ,
+            "LAP_INSTALL_DRY_RUN": "1",
+            "LAP_RELEASE_MANIFEST_URL": f"file://{EXAMPLE}",
+            "SUDO_USER": "dpower",
+        }
+        # If the user accidentally enters n at the pair-code prompt, treat it as
+        # an intent to skip instead of sending "n" to the pair API.
+        answers = (
+            "dpower\n"
+            "\n"
+            "/home/dpower/lap_workspace\n"
+            "\n"
+            "/home/dpower/lap-packages\n"
+            "\n"
+            "y\n"
+            "y\n"
+            "n\n"
+        )
+        result = subprocess.run(
+            ["bash", str(INSTALLER)],
+            input=answers,
+            capture_output=True,
+            text=True,
+            env=env,
+            check=False,
+            timeout=20,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        self.assertIn("pair code 'n' means skip", result.stdout)
+        self.assertIn("pair status:      skipped", result.stdout)
+
 
 if __name__ == "__main__":
     unittest.main()

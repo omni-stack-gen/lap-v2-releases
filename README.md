@@ -12,6 +12,12 @@ host into the expected LAP v2 runtime shape:
 - toolchains under the selected daemon user's home
 - `lap.service` managed by systemd
 
+For the current LAN test stack, keep these endpoints distinct:
+
+- pair HTTP URL: `http://192.168.1.108:38082`
+- daemon WebSocket endpoint returned after pairing: `ws://192.168.1.108:38081/v2/wss`
+- MCP HTTP endpoint for `lap_agent`: `http://192.168.1.108:38080/mcp`
+
 Customer-facing install shape:
 
 ```bash

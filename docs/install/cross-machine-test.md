@@ -53,12 +53,16 @@ Prepare the daemon runtime asset:
 
 ```bash
 cd /data/lch/work/omni-stack-gen/lap-v2-releases
-rm -rf "$RELEASE_INPUTS/lap-daemon-runtime"
-mkdir -p "$RELEASE_INPUTS/lap-daemon-runtime/bin"
-install -m 0755 \
-  /data/lch/work/omni-stack-gen/code/dist/lap-v0.23.0-linux-x86_64 \
-  "$RELEASE_INPUTS/lap-daemon-runtime/bin/lap"
+LAP_V2_TOOLS_DIR=/data/lch/work/omni-stack-gen/code_v2_lap_tools \
+LAP_RUNTIME_OUT="$RELEASE_INPUTS/lap-daemon-runtime" \
+  scripts/prepare_v2_runtime_asset.sh
 ```
+
+This runtime asset packages the v2 `lap` Python daemon plus its dependencies in
+a copied system-Python venv. Verify `"$RELEASE_INPUTS/lap-daemon-runtime/bin/lap" --version`
+prints `2.0.0`. Do not use the old `code/dist/lap-v0.23.0-linux-x86_64`
+binary for the v2 `lap_mcp` stack; it pairs against the legacy
+`/v1/proxy/register` API instead of `/v1/pair`.
 
 Prepare the toolchain asset:
 
@@ -89,7 +93,7 @@ python3 scripts/build_release.py \
   --out-dir "$RELEASE_DIST" \
   --release-version "$RELEASE_VERSION" \
   --asset-base-url "$PACKAGE_BASE_URL" \
-  --default-saas-url "https://api.omnistack.io"
+  --default-saas-url "http://192.168.1.108:38082"
 
 cp install.sh "$RELEASE_DIST/$RELEASE_VERSION/install.sh"
 python3 scripts/validate_manifest.py "$RELEASE_DIST/$RELEASE_VERSION/manifest.json"
@@ -120,7 +124,8 @@ for file in \
   manifest.json \
   lap-daemon-runtime.tar.gz \
   lap-pack-projects.tar.gz \
-  lap-toolchains.tar.gz
+  lap-toolchains.tar.gz \
+  SHA256SUMS
 do
   curl --fail --show-error \
     --header "PRIVATE-TOKEN: $GITLAB_TOKEN" \
@@ -173,6 +178,17 @@ sudo env LAP_RELEASE_MANIFEST_URL="$PACKAGE_BASE_URL/manifest.json" bash install
 The installer is interactive. Press Enter to accept defaults unless this target
 host needs different paths. For a real daemon-online test, choose pairing during
 install and enter the pair code from the SaaS or pairing service.
+
+For the current LAN test stack, the endpoint roles are:
+
+```text
+SaaS HTTP URL:          http://192.168.1.108:38082
+Daemon WebSocket URL:   ws://192.168.1.108:38081/v2/wss
+lap_agent MCP URL:      http://192.168.1.108:38080/mcp
+```
+
+Enter the SaaS HTTP URL at the installer prompt. The daemon WebSocket URL is
+returned by the pair API and must not be pasted into that prompt.
 
 ## 7. Verify The Target Host
 
