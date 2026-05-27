@@ -14,6 +14,10 @@ Registry version, verifies each asset hash declared by the manifest, installs
 the daemon runtime, installs pack projects and toolchains, writes `lap.service`,
 and optionally pairs the daemon during the same flow.
 
+The installer also prepares the daemon user's systemd user manager by enabling
+linger and starting `user@<uid>.service`; `lap.service` receives the matching
+`XDG_RUNTIME_DIR` and D-Bus address so LAP can run scoped tasks.
+
 During pairing, enter the SaaS pair HTTP URL, not the daemon WebSocket URL. In
 the current LAN test stack:
 

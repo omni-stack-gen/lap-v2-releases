@@ -36,6 +36,7 @@ class InstallDryRunTests(unittest.TestCase):
         self.assertIn("DRY RUN complete", result.stdout)
         self.assertIn("lap-daemon-runtime", result.stdout)
         self.assertIn("pair status:      skipped", result.stdout)
+        self.assertIn("dry run: would enable linger", result.stdout)
 
     def test_installer_defaults_to_release_only_manifest_url(self) -> None:
         env = {
@@ -225,6 +226,7 @@ source {INSTALLER}
 chown() {{ :; }}
 DAEMON_USER={os.environ.get("USER", "laptest")}
 DAEMON_GROUP={os.environ.get("USER", "laptest")}
+DAEMON_UID=1234
 INSTALL_ROOT={install_root}
 STATE_DIR={state_dir}
 write_pair_helper http://192.168.1.108:38082
@@ -240,9 +242,22 @@ write_pair_helper http://192.168.1.108:38082
 
             helper = install_root / "bin" / "lap-pair"
             helper_text = helper.read_text(encoding="utf-8")
+            syntax = subprocess.run(
+                ["bash", "-n", str(helper)],
+                capture_output=True,
+                text=True,
+                check=False,
+                timeout=20,
+            )
+            self.assertEqual(syntax.returncode, 0, syntax.stderr + syntax.stdout)
+
+            self.assertIn("DAEMON_UID=1234", helper_text)
             self.assertIn(f"STATE_DIR={state_dir}", helper_text)
             self.assertIn('env LAP_STATE_DIR="$STATE_DIR"', helper_text)
             self.assertIn("identity_file=\"$STATE_DIR/identity.json\"", helper_text)
+            self.assertIn('loginctl enable-linger "$DAEMON_USER"', helper_text)
+            self.assertIn('systemctl start "user@$DAEMON_UID.service"', helper_text)
+            self.assertIn('bus_path="$runtime_dir/bus"', helper_text)
             self.assertIn("LAP_ALLOW_INSECURE_WS=1", helper_text)
             self.assertIn("systemctl enable --now lap.service", helper_text)
 

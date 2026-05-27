@@ -33,6 +33,11 @@ systemd unit:       /etc/systemd/system/lap.service
 install report:     /data/lap/install-report.json
 ```
 
+During install, the script also enables linger for the daemon user, starts
+`user@<uid>.service`, and writes `XDG_RUNTIME_DIR` /
+`DBUS_SESSION_BUS_ADDRESS` into `lap.service`. This is required because LAP
+uses `systemd-run --user --scope` for task execution.
+
 ## Pairing
 
 The installer asks whether to pair during install. Pairing is recommended.

@@ -10,6 +10,7 @@ APT_PACKAGES=(
   gzip
   python3
   sudo
+  dbus-user-session
   android-tools-adb
   usbutils
   linux-tools-generic
@@ -376,6 +377,19 @@ primary_group() {
   id -gn "$user" 2>/dev/null || printf '%s' "$user"
 }
 
+uid_for_user() {
+  local user="$1"
+  if id -u "$user" >/dev/null 2>&1; then
+    id -u "$user"
+    return
+  fi
+  if is_dry_run; then
+    printf '1000'
+    return
+  fi
+  die "daemon user does not exist: $user"
+}
+
 home_for_user() {
   local user="$1"
   local home
@@ -425,6 +439,26 @@ create_dirs() {
   chmod 0755 "$WORKSPACE_ROOT" "$PACKAGES_ROOT"
 }
 
+prepare_user_manager() {
+  if is_dry_run; then
+    log "dry run: would enable linger and start user@$DAEMON_UID.service for $DAEMON_USER"
+    return
+  fi
+  command -v loginctl >/dev/null 2>&1 || die "loginctl not found; systemd user manager is required"
+  command -v systemctl >/dev/null 2>&1 || die "systemctl not found; systemd is required"
+
+  log "enabling linger for $DAEMON_USER"
+  loginctl enable-linger "$DAEMON_USER" || die "failed to enable linger for $DAEMON_USER"
+
+  log "starting user@$DAEMON_UID.service"
+  systemctl start "user@$DAEMON_UID.service" || die "failed to start user@$DAEMON_UID.service"
+
+  local runtime_dir="/run/user/$DAEMON_UID"
+  local bus_path="$runtime_dir/bus"
+  [[ -d "$runtime_dir" ]] || die "user runtime dir is not available: $runtime_dir"
+  [[ -S "$bus_path" ]] || die "user D-Bus socket is not available: $bus_path"
+}
+
 install_assets() {
   local manifest="$1"
   local tmp_dir="$2"
@@ -462,8 +496,8 @@ write_systemd_unit() {
 
 [Unit]
 Description=OmniStack Local Agent Proxy (lap v2)
-After=network-online.target
-Wants=network-online.target
+After=network-online.target user@$DAEMON_UID.service
+Wants=network-online.target user@$DAEMON_UID.service
 
 [Service]
 Type=notify
@@ -479,6 +513,9 @@ Environment=LAP_STATE_DIR=$STATE_DIR
 Environment=LAP_WORKSPACE_ROOT=$WORKSPACE_ROOT
 Environment=LAP_PACKAGES_ROOT=$PACKAGES_ROOT
 Environment=LAP_TOOLCHAINS_ROOT=$TOOLCHAIN_ROOT
+Environment=LAP_EXPECTED_UID=$DAEMON_UID
+Environment=XDG_RUNTIME_DIR=/run/user/$DAEMON_UID
+Environment=DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/$DAEMON_UID/bus
 $insecure_ws_line
 StandardOutput=journal
 StandardError=journal
@@ -506,6 +543,7 @@ set -Eeuo pipefail
 
 DAEMON_USER=$(printf '%q' "$DAEMON_USER")
 DAEMON_GROUP=$(printf '%q' "$DAEMON_GROUP")
+DAEMON_UID=$(printf '%q' "$DAEMON_UID")
 STATE_DIR=$(printf '%q' "$STATE_DIR")
 INSTALL_ROOT=$(printf '%q' "$INSTALL_ROOT")
 DEFAULT_SAAS_URL=$(printf '%q' "$default_saas_url")
@@ -531,6 +569,19 @@ validate_saas_url() {
       die "SaaS URL must be the HTTP pair API base URL, not a daemon WebSocket or MCP endpoint: \$url"
       ;;
   esac
+}
+
+ensure_user_manager() {
+  command -v loginctl >/dev/null 2>&1 || die "loginctl not found; systemd user manager is required"
+  command -v systemctl >/dev/null 2>&1 || die "systemctl not found; systemd is required"
+
+  loginctl enable-linger "\$DAEMON_USER" || die "failed to enable linger for \$DAEMON_USER"
+  systemctl start "user@\$DAEMON_UID.service" || die "failed to start user@\$DAEMON_UID.service"
+
+  runtime_dir="/run/user/\$DAEMON_UID"
+  bus_path="\$runtime_dir/bus"
+  [[ -d "\$runtime_dir" ]] || die "user runtime dir is not available: \$runtime_dir"
+  [[ -S "\$bus_path" ]] || die "user D-Bus socket is not available: \$bus_path"
 }
 
 usage() {
@@ -621,8 +672,13 @@ Environment=LAP_ALLOW_INSECURE_WS=1
 UNIT
 fi
 
+ensure_user_manager
 systemctl daemon-reload
-systemctl enable --now lap.service
+if ! systemctl enable --now lap.service; then
+  systemctl status lap.service --no-pager -l || true
+  journalctl -u lap.service -n 80 --no-pager -l || true
+  die "failed to enable/start lap.service"
+fi
 
 printf 'identity=%s\n' "\$identity_file"
 printf 'proxy_id=%s\n' "\$proxy_id"
@@ -800,6 +856,7 @@ main() {
   DAEMON_USER="$(prompt_default "Daemon systemd user" "$default_user")"
   ensure_user "$DAEMON_USER"
   DAEMON_GROUP="$(primary_group "$DAEMON_USER")"
+  DAEMON_UID="$(uid_for_user "$DAEMON_USER")"
   default_home="$(home_for_user "$DAEMON_USER")"
 
   INSTALL_ROOT="$(prompt_default "Install root" "$default_home/lap")"
@@ -827,6 +884,7 @@ Planned install
 release:          $release_version
 daemon user:      $DAEMON_USER
 daemon group:     $DAEMON_GROUP
+daemon uid:       $DAEMON_UID
 install root:     $INSTALL_ROOT
 state dir:        $STATE_DIR
 workspace root:   $WORKSPACE_ROOT
@@ -849,6 +907,7 @@ EOF
   install_apt_packages
   create_dirs
   install_assets "$manifest_path" "$INSTALL_TMP_DIR"
+  prepare_user_manager
   write_systemd_unit
   write_pair_helper "$default_saas_url"
   pair_and_start "$default_saas_url"
