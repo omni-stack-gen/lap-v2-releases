@@ -38,6 +38,11 @@ During install, the script also enables linger for the daemon user, starts
 `DBUS_SESSION_BUS_ADDRESS` into `lap.service`. This is required because LAP
 uses `systemd-run --user --scope` for task execution.
 
+On Ubuntu 24.04, the installer may also prompt to allow bwrap user namespaces
+by setting `kernel.apparmor_restrict_unprivileged_userns=0` and persisting that
+setting under `/etc/sysctl.d/60-lap-userns.conf`. Without this, LAP exits
+before connecting with `sandbox.preflight_result reason=userns_unavailable`.
+
 ## Pairing
 
 The installer asks whether to pair during install. Pairing is recommended.

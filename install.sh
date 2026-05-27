@@ -10,6 +10,7 @@ APT_PACKAGES=(
   gzip
   python3
   sudo
+  procps
   dbus-user-session
   android-tools-adb
   usbutils
@@ -437,6 +438,49 @@ create_dirs() {
   chown -R "$DAEMON_USER:$DAEMON_GROUP" "$STATE_DIR" "$INSTALL_ROOT" "$TOOLCHAIN_ROOT" "$PACKAGES_ROOT"
   chmod 0700 "$STATE_DIR"
   chmod 0755 "$WORKSPACE_ROOT" "$PACKAGES_ROOT"
+}
+
+prepare_sandbox_userns() {
+  if is_dry_run; then
+    log "dry run: would prepare bwrap user namespace sysctls"
+    return
+  fi
+  command -v sysctl >/dev/null 2>&1 || die "sysctl not found; install procps first"
+
+  local apparmor_path="/proc/sys/kernel/apparmor_restrict_unprivileged_userns"
+  local userns_path="/proc/sys/kernel/unprivileged_userns_clone"
+  local sysctl_conf="/etc/sysctl.d/60-lap-userns.conf"
+  local apparmor_value="" userns_value=""
+  local desired_lines=()
+
+  if [[ -r "$apparmor_path" ]]; then
+    apparmor_value="$(tr -d '[:space:]' < "$apparmor_path")"
+    if [[ "$apparmor_value" != "0" ]]; then
+      if ! prompt_yes_no "Ubuntu AppArmor blocks bwrap user namespaces. Set kernel.apparmor_restrict_unprivileged_userns=0" "y"; then
+        die "bwrap user namespaces are required; enable kernel.apparmor_restrict_unprivileged_userns=0 or rerun and accept the prompt"
+      fi
+      log "setting kernel.apparmor_restrict_unprivileged_userns=0"
+      sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 >/dev/null
+    fi
+    desired_lines+=("kernel.apparmor_restrict_unprivileged_userns = 0")
+  fi
+
+  if [[ -r "$userns_path" ]]; then
+    userns_value="$(tr -d '[:space:]' < "$userns_path")"
+    if [[ "$userns_value" != "1" ]]; then
+      if ! prompt_yes_no "Enable unprivileged user namespaces with kernel.unprivileged_userns_clone=1" "y"; then
+        die "unprivileged user namespaces are required; enable kernel.unprivileged_userns_clone=1 or rerun and accept the prompt"
+      fi
+      log "setting kernel.unprivileged_userns_clone=1"
+      sysctl -w kernel.unprivileged_userns_clone=1 >/dev/null
+    fi
+    desired_lines+=("kernel.unprivileged_userns_clone = 1")
+  fi
+
+  if ((${#desired_lines[@]})); then
+    printf '%s\n' "${desired_lines[@]}" > "$sysctl_conf"
+    log "wrote $sysctl_conf"
+  fi
 }
 
 prepare_user_manager() {
@@ -905,6 +949,7 @@ EOF
 
   preflight_paths
   install_apt_packages
+  prepare_sandbox_userns
   create_dirs
   install_assets "$manifest_path" "$INSTALL_TMP_DIR"
   prepare_user_manager

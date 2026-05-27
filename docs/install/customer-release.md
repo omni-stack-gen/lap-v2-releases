@@ -18,6 +18,10 @@ The installer also prepares the daemon user's systemd user manager by enabling
 linger and starting `user@<uid>.service`; `lap.service` receives the matching
 `XDG_RUNTIME_DIR` and D-Bus address so LAP can run scoped tasks.
 
+On Ubuntu 24.04, the installer may prompt to allow bwrap user namespaces. LAP
+uses bwrap for command sandboxing, so `kernel.apparmor_restrict_unprivileged_userns`
+must allow unprivileged user namespaces before the daemon can connect.
+
 During pairing, enter the SaaS pair HTTP URL, not the daemon WebSocket URL. In
 the current LAN test stack:
 

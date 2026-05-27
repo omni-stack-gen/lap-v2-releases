@@ -36,6 +36,7 @@ class InstallDryRunTests(unittest.TestCase):
         self.assertIn("DRY RUN complete", result.stdout)
         self.assertIn("lap-daemon-runtime", result.stdout)
         self.assertIn("pair status:      skipped", result.stdout)
+        self.assertIn("dry run: would prepare bwrap user namespace sysctls", result.stdout)
         self.assertIn("dry run: would enable linger", result.stdout)
 
     def test_installer_defaults_to_release_only_manifest_url(self) -> None:
