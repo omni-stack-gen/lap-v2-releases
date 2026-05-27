@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import subprocess
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -179,6 +180,71 @@ class InstallDryRunTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
         self.assertIn("pair code 'n' means skip", result.stdout)
         self.assertIn("pair status:      skipped", result.stdout)
+
+    def test_skipped_pair_summary_uses_state_bound_pair_helper(self) -> None:
+        env = {
+            **os.environ,
+            "LAP_INSTALL_DRY_RUN": "1",
+            "LAP_RELEASE_MANIFEST_URL": f"file://{EXAMPLE}",
+            "SUDO_USER": "dpower",
+        }
+        answers = (
+            "dpower\n"
+            "\n"
+            "/home/dpower/lap_workspace\n"
+            "\n"
+            "/home/dpower/lap-packages\n"
+            "\n"
+            "y\n"
+            "n\n"
+        )
+        result = subprocess.run(
+            ["bash", str(INSTALLER)],
+            input=answers,
+            capture_output=True,
+            text=True,
+            env=env,
+            check=False,
+            timeout=20,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        self.assertIn(
+            "sudo /home/dpower/lap/bin/lap-pair <PAIR_CODE> --saas-url <SAAS_HTTP_URL>",
+            result.stdout,
+        )
+        self.assertNotIn("sudo -u dpower LAP_STATE_DIR=", result.stdout)
+
+    def test_write_pair_helper_bakes_installer_state_dir(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            install_root = tmp_path / "lap"
+            state_dir = tmp_path / "lap-workspace"
+            script = f"""
+set -Eeuo pipefail
+source {INSTALLER}
+chown() {{ :; }}
+DAEMON_USER={os.environ.get("USER", "laptest")}
+DAEMON_GROUP={os.environ.get("USER", "laptest")}
+INSTALL_ROOT={install_root}
+STATE_DIR={state_dir}
+write_pair_helper http://192.168.1.108:38082
+"""
+            result = subprocess.run(
+                ["bash", "-c", script],
+                capture_output=True,
+                text=True,
+                check=False,
+                timeout=20,
+            )
+            self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+
+            helper = install_root / "bin" / "lap-pair"
+            helper_text = helper.read_text(encoding="utf-8")
+            self.assertIn(f"STATE_DIR={state_dir}", helper_text)
+            self.assertIn('env LAP_STATE_DIR="$STATE_DIR"', helper_text)
+            self.assertIn("identity_file=\"$STATE_DIR/identity.json\"", helper_text)
+            self.assertIn("LAP_ALLOW_INSECURE_WS=1", helper_text)
+            self.assertIn("systemctl enable --now lap.service", helper_text)
 
 
 if __name__ == "__main__":

@@ -53,9 +53,12 @@ endpoint is `ws://`, the installer updates `lap.service` with
 If skipped, run later:
 
 ```bash
-sudo -u <daemon_user> LAP_STATE_DIR=/data/lap /home/<daemon_user>/lap/bin/lap pair <PAIR_CODE> --saas-url <SAAS_HTTP_URL>
-sudo systemctl enable --now lap.service
+sudo /home/<daemon_user>/lap/bin/lap-pair <PAIR_CODE> --saas-url <SAAS_HTTP_URL>
 ```
+
+Use `lap-pair` instead of calling `lap pair` directly. The helper is generated
+by the installer with the selected state directory baked in, so the identity is
+written to the same location that `lap.service` reads.
 
 ## Logs
 

@@ -26,6 +26,17 @@ lap_agent MCP URL:      http://192.168.1.108:38080/mcp
 The WebSocket URL is returned by the pair API and written into the daemon
 identity. Do not paste it into the installer prompt.
 
+If pairing is skipped during install, the installer prints a follow-up command
+using the generated helper:
+
+```bash
+sudo /home/<daemon_user>/lap/bin/lap-pair <PAIR_CODE> --saas-url <SAAS_HTTP_URL>
+```
+
+This helper writes identity data into the same state directory used by
+`lap.service`, applies the local `ws://` override when needed, and starts the
+service.
+
 ## Pin A Version
 
 ```bash

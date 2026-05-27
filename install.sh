@@ -491,6 +491,148 @@ EOF
   systemctl daemon-reload
 }
 
+write_pair_helper() {
+  local default_saas_url="$1"
+  local helper="$INSTALL_ROOT/bin/lap-pair"
+  if is_dry_run; then
+    log "dry run: would write $helper"
+    return
+  fi
+
+  mkdir -p "$(dirname "$helper")"
+  cat > "$helper" <<EOF
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+DAEMON_USER=$(printf '%q' "$DAEMON_USER")
+DAEMON_GROUP=$(printf '%q' "$DAEMON_GROUP")
+STATE_DIR=$(printf '%q' "$STATE_DIR")
+INSTALL_ROOT=$(printf '%q' "$INSTALL_ROOT")
+DEFAULT_SAAS_URL=$(printf '%q' "$default_saas_url")
+
+die() {
+  printf '[lap-pair] ERROR: %s\n' "\$*" >&2
+  exit 1
+}
+
+validate_saas_url() {
+  local url="\$1"
+  case "\$url" in
+    http://*|https://*) ;;
+    ws://*|wss://*)
+      die "SaaS URL must be an HTTP pair API base URL, not a WebSocket endpoint. Use http://host:port for pairing; the daemon receives ws_endpoint after pairing."
+      ;;
+    *)
+      die "SaaS URL must start with http:// or https://: \$url"
+      ;;
+  esac
+  case "\$url" in
+    */v2/wss|*/v2/wss/|*/mcp|*/mcp/)
+      die "SaaS URL must be the HTTP pair API base URL, not a daemon WebSocket or MCP endpoint: \$url"
+      ;;
+  esac
+}
+
+usage() {
+  printf 'Usage:\n'
+  printf '  sudo %s <PAIR_CODE> [--saas-url <SAAS_HTTP_URL>]\n\n' "\$0"
+  cat <<'USAGE'
+Pairs the daemon into the installer-selected state directory, writes any
+required local WebSocket systemd override, then enables and starts lap.service.
+USAGE
+}
+
+pair_code=""
+saas_url="\$DEFAULT_SAAS_URL"
+while [[ "\$#" -gt 0 ]]; do
+  case "\$1" in
+    --saas-url)
+      [[ "\$#" -ge 2 ]] || die "--saas-url requires a value"
+      saas_url="\$2"
+      shift 2
+      ;;
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    --)
+      shift
+      break
+      ;;
+    -*)
+      die "unknown option: \$1"
+      ;;
+    *)
+      [[ -z "\$pair_code" ]] || die "unexpected extra argument: \$1"
+      pair_code="\$1"
+      shift
+      ;;
+  esac
+done
+while [[ "\$#" -gt 0 ]]; do
+  [[ -z "\$pair_code" ]] || die "unexpected extra argument: \$1"
+  pair_code="\$1"
+  shift
+done
+
+[[ -n "\$pair_code" ]] || die "PAIR_CODE is required"
+saas_url="\${saas_url%/}"
+validate_saas_url "\$saas_url"
+
+if [[ "\$(id -u)" -ne 0 ]]; then
+  die "run as root, for example: sudo \$0 <PAIR_CODE> --saas-url \$saas_url"
+fi
+
+lap_bin="\$INSTALL_ROOT/bin/lap"
+[[ -x "\$lap_bin" ]] || die "lap binary is not executable: \$lap_bin"
+
+mkdir -p "\$STATE_DIR"
+chown "\$DAEMON_USER:\$DAEMON_GROUP" "\$STATE_DIR"
+chmod 0700 "\$STATE_DIR"
+
+pair_output="\$(sudo -u "\$DAEMON_USER" env LAP_STATE_DIR="\$STATE_DIR" "\$lap_bin" pair "\$pair_code" --saas-url "\$saas_url" 2>&1)" || {
+  printf '%s\n' "\$pair_output"
+  die "pairing failed"
+}
+printf '%s\n' "\$pair_output"
+
+identity_file="\$STATE_DIR/identity.json"
+[[ -f "\$identity_file" ]] || die "pair succeeded but identity file was not written: \$identity_file"
+
+read -r proxy_id ws_endpoint < <(python3 - "\$identity_file" <<'PY'
+import json
+import sys
+
+path = sys.argv[1]
+with open(path, encoding="utf-8") as fh:
+    data = json.load(fh)
+print(data.get("proxy_id", ""), data.get("ws_endpoint", ""))
+PY
+)
+[[ -n "\$proxy_id" ]] || die "identity file is missing proxy_id: \$identity_file"
+[[ -n "\$ws_endpoint" ]] || die "identity file is missing ws_endpoint: \$identity_file"
+
+if [[ "\$ws_endpoint" == ws://* ]]; then
+  override_dir="/etc/systemd/system/lap.service.d"
+  mkdir -p "\$override_dir"
+  cat > "\$override_dir/10-local-ws.conf" <<'UNIT'
+[Service]
+Environment=LAP_ALLOW_INSECURE_WS=1
+UNIT
+fi
+
+systemctl daemon-reload
+systemctl enable --now lap.service
+
+printf 'identity=%s\n' "\$identity_file"
+printf 'proxy_id=%s\n' "\$proxy_id"
+printf 'ws_endpoint=%s\n' "\$ws_endpoint"
+printf 'service=lap.service started\n'
+EOF
+  chmod 0755 "$helper"
+  chown "$DAEMON_USER:$DAEMON_GROUP" "$helper"
+}
+
 pair_and_start() {
   local saas_url="$1"
   PAIR_STATUS="skipped"
@@ -524,16 +666,16 @@ pair_and_start() {
     PAIR_STATUS="dry_run"
     PROXY_ID="lap-dryrun"
     SERVICE_STARTED="dry_run"
-    log "dry run: would run lap pair and start lap.service"
+    log "dry run: would run $INSTALL_ROOT/bin/lap-pair and start lap.service"
     return
   fi
 
-  local lap_bin="$INSTALL_ROOT/bin/lap"
-  [[ -x "$lap_bin" ]] || die "lap binary is not executable: $lap_bin"
+  local pair_helper="$INSTALL_ROOT/bin/lap-pair"
+  [[ -x "$pair_helper" ]] || die "lap-pair helper is not executable: $pair_helper"
 
   local pair_output
   set +e
-  pair_output="$(sudo -u "$DAEMON_USER" env LAP_STATE_DIR="$STATE_DIR" "$lap_bin" pair "$pair_code" --saas-url "$saas_url" 2>&1)"
+  pair_output="$("$pair_helper" "$pair_code" --saas-url "$saas_url" 2>&1)"
   local status=$?
   set -e
   printf '%s\n' "$pair_output"
@@ -544,12 +686,6 @@ pair_and_start() {
   PAIR_STATUS="paired"
   PROXY_ID="$(printf '%s\n' "$pair_output" | sed -n 's/^paired\. proxy_id=//p' | tail -1)"
   PAIR_WS_ENDPOINT="$(printf '%s\n' "$pair_output" | sed -n 's/^ws_endpoint=//p' | tail -1)"
-  if [[ "$PAIR_WS_ENDPOINT" == ws://* ]]; then
-    ALLOW_INSECURE_WS="true"
-    write_systemd_unit
-  fi
-
-  systemctl enable --now lap.service
   SERVICE_STARTED="true"
 }
 
@@ -635,8 +771,7 @@ Useful commands:
   sudo journalctl -u lap.service -f
 
 If pairing was skipped:
-  sudo -u $DAEMON_USER LAP_STATE_DIR=$STATE_DIR $INSTALL_ROOT/bin/lap pair <PAIR_CODE> --saas-url <SAAS_HTTP_URL>
-  sudo systemctl enable --now lap.service
+  sudo $INSTALL_ROOT/bin/lap-pair <PAIR_CODE> --saas-url <SAAS_HTTP_URL>
 EOF
 }
 
@@ -715,6 +850,7 @@ EOF
   create_dirs
   install_assets "$manifest_path" "$INSTALL_TMP_DIR"
   write_systemd_unit
+  write_pair_helper "$default_saas_url"
   pair_and_start "$default_saas_url"
   write_report "$manifest_path"
   print_summary
