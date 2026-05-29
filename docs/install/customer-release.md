@@ -22,6 +22,13 @@ On Ubuntu 24.04, the installer may prompt to allow bwrap user namespaces. LAP
 uses bwrap for command sandboxing, so `kernel.apparmor_restrict_unprivileged_userns`
 must allow unprivileged user namespaces before the daemon can connect.
 
+The installer also configures Linux-side device permissions for serial and USB
+access: it adds the daemon user to `dialout` and `plugdev`, writes
+`/etc/udev/rules.d/70-lap-devices.rules`, and reloads udev. This covers common
+USB serial adapters, board USB/RDM VID `33c3`, and Android ADB interface
+classes. Windows or VM USB passthrough still has to expose the devices to Linux
+first.
+
 During pairing, enter the SaaS pair HTTP URL, not the daemon WebSocket URL. In
 the current LAN test stack:
 

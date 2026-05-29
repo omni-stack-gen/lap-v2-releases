@@ -14,6 +14,7 @@ APT_PACKAGES=(
   dbus-user-session
   android-tools-adb
   usbutils
+  udev
   linux-tools-generic
   hwdata
   bubblewrap
@@ -416,6 +417,46 @@ install_apt_packages() {
   DEBIAN_FRONTEND=noninteractive apt-get install -y "${APT_PACKAGES[@]}"
 }
 
+prepare_device_permissions() {
+  local rules_file="/etc/udev/rules.d/70-lap-devices.rules"
+  if is_dry_run; then
+    log "dry run: would configure serial/USB permissions for $DAEMON_USER (dialout, plugdev, udev rules)"
+    return
+  fi
+
+  log "configuring serial/USB permissions for $DAEMON_USER"
+  groupadd -f dialout
+  groupadd -f plugdev
+  usermod -aG dialout,plugdev "$DAEMON_USER"
+
+  cat > "$rules_file" <<'EOF'
+# OmniStack LAP device permissions.
+#
+# Serial consoles commonly used with LAP boards.
+SUBSYSTEM=="tty", KERNEL=="ttyUSB[0-9]*", GROUP="dialout", MODE="0660", TAG+="uaccess"
+SUBSYSTEM=="tty", KERNEL=="ttyACM[0-9]*", GROUP="dialout", MODE="0660", TAG+="uaccess"
+SUBSYSTEM=="tty", ATTRS{idVendor}=="1a86", ATTRS{idProduct}=="7523", GROUP="dialout", MODE="0660", TAG+="uaccess"
+SUBSYSTEM=="tty", ATTRS{idVendor}=="10c4", ATTRS{idProduct}=="ea60", GROUP="dialout", MODE="0660", TAG+="uaccess"
+SUBSYSTEM=="tty", ATTRS{idVendor}=="0403", ATTRS{idProduct}=="6001", GROUP="dialout", MODE="0660", TAG+="uaccess"
+SUBSYSTEM=="tty", ATTRS{idVendor}=="0403", ATTRS{idProduct}=="6015", GROUP="dialout", MODE="0660", TAG+="uaccess"
+
+# Board USB/RDM and Android ADB interfaces.
+SUBSYSTEM=="usb", ATTRS{idVendor}=="33c3", GROUP="plugdev", MODE="0660", TAG+="uaccess"
+SUBSYSTEM=="usb", ENV{ID_USB_INTERFACES}=="*:ff4201:*", GROUP="plugdev", MODE="0660", TAG+="uaccess"
+SUBSYSTEM=="usb", ENV{ID_USB_INTERFACES}=="*:ff4203:*", GROUP="plugdev", MODE="0660", TAG+="uaccess"
+EOF
+  chmod 0644 "$rules_file"
+
+  if command -v udevadm >/dev/null 2>&1; then
+    udevadm control --reload-rules || log "warning: failed to reload udev rules"
+    udevadm trigger --subsystem-match=tty || true
+    udevadm trigger --subsystem-match=usb || true
+  else
+    log "warning: udevadm not found; replug devices or reboot to apply udev rules"
+  fi
+  log "wrote $rules_file"
+}
+
 preflight_paths() {
   if is_dry_run; then
     log "dry run: would refuse non-empty install/toolchain/pack directories"
@@ -556,6 +597,7 @@ WorkingDirectory=$INSTALL_ROOT
 Environment=LAP_STATE_DIR=$STATE_DIR
 Environment=LAP_WORKSPACE_ROOT=$WORKSPACE_ROOT
 Environment=LAP_PACKAGES_ROOT=$PACKAGES_ROOT
+Environment=LAP_BASH_ALLOWED_EXTRA_BIND_PREFIXES=$PACKAGES_ROOT
 Environment=LAP_TOOLCHAINS_ROOT=$TOOLCHAIN_ROOT
 Environment=LAP_EXPECTED_UID=$DAEMON_UID
 Environment=XDG_RUNTIME_DIR=/run/user/$DAEMON_UID
@@ -949,6 +991,7 @@ EOF
 
   preflight_paths
   install_apt_packages
+  prepare_device_permissions
   prepare_sandbox_userns
   create_dirs
   install_assets "$manifest_path" "$INSTALL_TMP_DIR"

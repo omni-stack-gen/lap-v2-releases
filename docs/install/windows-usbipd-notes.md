@@ -3,6 +3,10 @@
 This is not part of the Linux installer v1. It documents what a future Windows
 bootstrapper should automate and what operators can do manually today.
 
+The Linux installer configures Linux user/group and udev permissions after the
+device reaches Linux. It does not install `usbipd-win`, bind Windows BUSIDs, or
+attach devices into WSL/VM environments.
+
 ## Host Setup
 
 On Windows, install `usbipd-win` from an Administrator PowerShell:

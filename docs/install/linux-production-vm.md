@@ -43,6 +43,23 @@ by setting `kernel.apparmor_restrict_unprivileged_userns=0` and persisting that
 setting under `/etc/sysctl.d/60-lap-userns.conf`. Without this, LAP exits
 before connecting with `sandbox.preflight_result reason=userns_unavailable`.
 
+## Device Permissions
+
+The installer configures Linux-side serial and USB access for `lap.service`:
+
+- adds the daemon user to `dialout` and `plugdev`
+- writes `/etc/udev/rules.d/70-lap-devices.rules`
+- reloads udev rules and triggers tty/usb devices
+
+The rules cover `/dev/ttyUSB*`, `/dev/ttyACM*`, common CH340/CP210x/FTDI
+serial adapters, ArtInChip board USB/RDM VID `33c3`, and Android ADB interface
+classes. If an already-attached device still has old ownership, replug the
+device or reboot the VM.
+
+`Permission denied` usually means Linux permissions are wrong. `Input/output
+error` usually means the serial/USB link, VM passthrough, cable, or board state
+needs attention even if permissions are configured.
+
 ## Pairing
 
 The installer asks whether to pair during install. Pairing is recommended.

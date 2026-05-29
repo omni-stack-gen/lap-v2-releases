@@ -37,6 +37,7 @@ class InstallDryRunTests(unittest.TestCase):
         self.assertIn("lap-daemon-runtime", result.stdout)
         self.assertIn("pair status:      skipped", result.stdout)
         self.assertIn("dry run: would prepare bwrap user namespace sysctls", result.stdout)
+        self.assertIn("dry run: would configure serial/USB permissions", result.stdout)
         self.assertIn("dry run: would enable linger", result.stdout)
 
     def test_installer_defaults_to_release_only_manifest_url(self) -> None:
@@ -215,6 +216,24 @@ class InstallDryRunTests(unittest.TestCase):
             result.stdout,
         )
         self.assertNotIn("sudo -u dpower LAP_STATE_DIR=", result.stdout)
+
+    def test_systemd_unit_allows_configured_pack_root_extra_binds(self) -> None:
+        installer_text = INSTALLER.read_text(encoding="utf-8")
+        self.assertIn(
+            "Environment=LAP_BASH_ALLOWED_EXTRA_BIND_PREFIXES=$PACKAGES_ROOT",
+            installer_text,
+        )
+
+    def test_installer_configures_lap_device_permissions(self) -> None:
+        installer_text = INSTALLER.read_text(encoding="utf-8")
+        self.assertIn("udev", installer_text)
+        self.assertIn("/etc/udev/rules.d/70-lap-devices.rules", installer_text)
+        self.assertIn("usermod -aG dialout,plugdev", installer_text)
+        self.assertIn('ATTRS{idVendor}=="1a86"', installer_text)
+        self.assertIn('ATTRS{idProduct}=="7523"', installer_text)
+        self.assertIn('ATTRS{idVendor}=="33c3"', installer_text)
+        self.assertIn('ENV{ID_USB_INTERFACES}=="*:ff4201:*"', installer_text)
+        self.assertIn("udevadm control --reload-rules", installer_text)
 
     def test_write_pair_helper_bakes_installer_state_dir(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
