@@ -2,7 +2,7 @@
 set -Eeuo pipefail
 
 SCRIPT_VERSION="0.1.0-dev"
-DEFAULT_RELEASE_PACKAGE_BASE="http://192.168.1.108:8090/api/v4/projects/5/packages/generic/lap-v2-release"
+DEFAULT_RELEASE_BASE_URL="https://github.com/omni-stack-gen/lap-v2-releases/releases/latest/download"
 APT_PACKAGES=(
   ca-certificates
   curl
@@ -91,7 +91,7 @@ prompt_yes_no() {
 }
 
 release_package_base() {
-  printf '%s' "${LAP_RELEASE_PACKAGE_BASE:-$DEFAULT_RELEASE_PACKAGE_BASE}"
+  printf '%s' "${LAP_RELEASE_PACKAGE_BASE:-}"
 }
 
 release_version_pin() {
@@ -108,10 +108,14 @@ release_base_url() {
   package_base="$(release_package_base)"
   package_base="${package_base%/}"
   version="$(release_version_pin)"
-  if [[ -n "$version" ]]; then
+  if [[ -n "$package_base" && -n "$version" ]]; then
     printf '%s/%s' "$package_base" "$version"
-  else
+  elif [[ -n "$package_base" ]]; then
     printf '%s/latest' "$package_base"
+  elif [[ -n "$version" ]]; then
+    printf 'https://github.com/omni-stack-gen/lap-v2-releases/releases/download/%s' "$version"
+  else
+    printf '%s' "$DEFAULT_RELEASE_BASE_URL"
   fi
 }
 

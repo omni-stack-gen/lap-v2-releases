@@ -6,13 +6,13 @@ command and do not need access to the source/build repository.
 ## Install Latest
 
 ```bash
-curl -fsSL http://192.168.1.108:8090/api/v4/projects/5/packages/generic/lap-v2-release/latest/install.sh | sudo bash
+curl -fsSL https://github.com/omni-stack-gen/lap-v2-releases/releases/latest/download/install.sh | sudo bash
 ```
 
-The installer downloads `manifest.json` from the same GitLab Generic Package
-Registry version, verifies each asset hash declared by the manifest, installs
-the daemon runtime, installs pack projects and toolchains, writes `lap.service`,
-and optionally pairs the daemon during the same flow.
+The installer downloads `manifest.json` from the same GitHub Release asset set,
+verifies each asset hash declared by the manifest, installs the daemon runtime,
+installs pack projects and toolchains, writes `lap.service`, and optionally
+pairs the daemon during the same flow.
 
 The installer also prepares the daemon user's systemd user manager by enabling
 linger and starting `user@<uid>.service`; `lap.service` receives the matching
@@ -55,14 +55,14 @@ service.
 ## Pin A Version
 
 ```bash
-curl -fsSL http://192.168.1.108:8090/api/v4/projects/5/packages/generic/lap-v2-release/latest/install.sh \
+curl -fsSL https://github.com/omni-stack-gen/lap-v2-releases/releases/latest/download/install.sh \
   | sudo env LAP_DAEMON_VERSION=v0.1.0 bash
 ```
 
 `LAP_DAEMON_VERSION` changes the manifest URL to:
 
 ```text
-http://192.168.1.108:8090/api/v4/projects/5/packages/generic/lap-v2-release/<version>/manifest.json
+https://github.com/omni-stack-gen/lap-v2-releases/releases/download/<version>/manifest.json
 ```
 
 ## Custom Package Base
@@ -70,7 +70,7 @@ http://192.168.1.108:8090/api/v4/projects/5/packages/generic/lap-v2-release/<ver
 Use this only for internal testing or private customer mirrors:
 
 ```bash
-curl -fsSL http://<gitlab-host>/api/v4/projects/<project-id>/packages/generic/<package>/latest/install.sh \
+curl -fsSL https://github.com/omni-stack-gen/lap-v2-releases/releases/latest/download/install.sh \
   | sudo env LAP_RELEASE_PACKAGE_BASE=http://<gitlab-host>/api/v4/projects/<project-id>/packages/generic/<package> bash
 ```
 
@@ -110,14 +110,8 @@ lap-toolchains.tar.gz
 `manifest.json` is the installer's source of truth for asset URLs and hashes.
 `SHA256SUMS` is included for manual verification and release auditing.
 
-For a moving "latest" install command, publish the same files under package
-version `latest`. If GitLab rejects overwriting existing package files, delete
-the old `latest` package first, then upload the new files.
-
-GitLab Release asset download URLs are intentionally not used for the
-one-command installer here: when a Release asset link points at Package Registry
-or project uploads, GitLab returns an HTML redirect-confirmation page, which is
-not compatible with `curl | bash`.
+For a moving "latest" install command, mark the intended GitHub Release as the
+latest non-draft release and upload the same asset names there.
 
 ## Operator Checks
 

@@ -44,6 +44,47 @@ class InstallDryRunTests(unittest.TestCase):
         env = {
             **os.environ,
             "LAP_INSTALL_DRY_RUN": "1",
+            "SUDO_USER": os.environ.get("USER", "laptest"),
+        }
+        result = subprocess.run(
+            ["bash", "-c", f"source {INSTALLER}; manifest_url"],
+            capture_output=True,
+            text=True,
+            env=env,
+            check=False,
+            timeout=20,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        self.assertEqual(
+            result.stdout.strip(),
+            "https://github.com/omni-stack-gen/lap-v2-releases/releases/latest/download/manifest.json",
+        )
+
+    def test_installer_can_pin_github_release_tag(self) -> None:
+        env = {
+            **os.environ,
+            "LAP_INSTALL_DRY_RUN": "1",
+            "LAP_DAEMON_VERSION": "v1.2.3",
+            "SUDO_USER": os.environ.get("USER", "laptest"),
+        }
+        result = subprocess.run(
+            ["bash", "-c", f"source {INSTALLER}; manifest_url"],
+            capture_output=True,
+            text=True,
+            env=env,
+            check=False,
+            timeout=20,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        self.assertEqual(
+            result.stdout.strip(),
+            "https://github.com/omni-stack-gen/lap-v2-releases/releases/download/v1.2.3/manifest.json",
+        )
+
+    def test_installer_keeps_package_base_override_for_internal_mirrors(self) -> None:
+        env = {
+            **os.environ,
+            "LAP_INSTALL_DRY_RUN": "1",
             "LAP_RELEASE_PACKAGE_BASE": "http://gitlab.example.com/api/v4/projects/5/packages/generic/lap-v2-release",
             "LAP_DAEMON_VERSION": "v1.2.3",
             "SUDO_USER": os.environ.get("USER", "laptest"),

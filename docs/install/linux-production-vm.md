@@ -7,13 +7,13 @@ This guide covers the v1 Linux installer path for Ubuntu daemon hosts.
 Production-style install, after a release is published:
 
 ```bash
-curl -fsSL http://192.168.1.108:8090/api/v4/projects/5/packages/generic/lap-v2-release/latest/install.sh | sudo bash
+curl -fsSL https://github.com/omni-stack-gen/lap-v2-releases/releases/latest/download/install.sh | sudo bash
 ```
 
 Pinned version:
 
 ```bash
-curl -fsSL http://192.168.1.108:8090/api/v4/projects/5/packages/generic/lap-v2-release/latest/install.sh \
+curl -fsSL https://github.com/omni-stack-gen/lap-v2-releases/releases/latest/download/install.sh \
   | sudo env LAP_DAEMON_VERSION=v0.1.0 bash
 ```
 
