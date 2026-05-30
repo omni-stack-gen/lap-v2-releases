@@ -47,7 +47,7 @@ curl_config() {
 }
 
 release_id_from_json() {
-  python3 - "$TAG" <<'PY'
+  python3 -c '
 import json
 import sys
 
@@ -60,7 +60,7 @@ if isinstance(data, list):
             break
 elif isinstance(data, dict):
     print(data.get("id", ""))
-PY
+' "$TAG"
 }
 
 find_release_id() {
@@ -100,21 +100,21 @@ main() {
   require_token
   require_assets
 
-  local cfg release_id
-  cfg="$(mktemp)"
-  trap 'rm -f "$cfg"' EXIT
-  curl_config "$cfg"
+  local cfg_path release_id
+  cfg_path="$(mktemp)"
+  trap 'rm -f "${cfg_path:-}"' EXIT
+  curl_config "$cfg_path"
 
-  release_id="$(find_release_id "$cfg")"
+  release_id="$(find_release_id "$cfg_path")"
   if [[ -z "$release_id" ]]; then
     log "creating release $TAG on $OWNER/$REPO"
-    release_id="$(create_release "$cfg")"
+    release_id="$(create_release "$cfg_path")"
   else
     log "using existing release $TAG id=$release_id"
   fi
 
   [[ -n "$release_id" ]] || die "could not resolve release id for $TAG"
-  upload_assets "$cfg" "$release_id"
+  upload_assets "$cfg_path" "$release_id"
   log "release published: https://gitee.com/$OWNER/$REPO/releases/tag/$TAG"
 }
 
