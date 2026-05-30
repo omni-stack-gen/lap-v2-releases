@@ -21,7 +21,7 @@ For the current LAN test stack, keep these endpoints distinct:
 Customer-facing install shape:
 
 ```bash
-curl -fsSL https://github.com/omni-stack-gen/lap-v2-releases/releases/latest/download/install.sh | sudo bash
+curl -fsSL https://gitee.com/lch8/lap-v2-releases/releases/download/v0.1.0/install.sh | sudo bash
 ```
 
 The customer-facing release project should only expose install docs and release

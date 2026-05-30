@@ -2,7 +2,7 @@
 set -Eeuo pipefail
 
 SCRIPT_VERSION="0.1.0-dev"
-DEFAULT_RELEASE_BASE_URL="https://github.com/omni-stack-gen/lap-v2-releases/releases/latest/download"
+DEFAULT_RELEASE_BASE_URL="https://gitee.com/lch8/lap-v2-releases/releases/download/v0.1.0"
 APT_PACKAGES=(
   ca-certificates
   curl
@@ -113,7 +113,7 @@ release_base_url() {
   elif [[ -n "$package_base" ]]; then
     printf '%s/latest' "$package_base"
   elif [[ -n "$version" ]]; then
-    printf 'https://github.com/omni-stack-gen/lap-v2-releases/releases/download/%s' "$version"
+    printf 'https://gitee.com/lch8/lap-v2-releases/releases/download/%s' "$version"
   else
     printf '%s' "$DEFAULT_RELEASE_BASE_URL"
   fi

@@ -3,13 +3,13 @@
 This is the customer-facing distribution shape. Customers receive one install
 command and do not need access to the source/build repository.
 
-## Install Latest
+## Install v0.1.0
 
 ```bash
-curl -fsSL https://github.com/omni-stack-gen/lap-v2-releases/releases/latest/download/install.sh | sudo bash
+curl -fsSL https://gitee.com/lch8/lap-v2-releases/releases/download/v0.1.0/install.sh | sudo bash
 ```
 
-The installer downloads `manifest.json` from the same GitHub Release asset set,
+The installer downloads `manifest.json` from the same Gitee Release asset set,
 verifies each asset hash declared by the manifest, installs the daemon runtime,
 installs pack projects and toolchains, writes `lap.service`, and optionally
 pairs the daemon during the same flow.
@@ -55,14 +55,14 @@ service.
 ## Pin A Version
 
 ```bash
-curl -fsSL https://github.com/omni-stack-gen/lap-v2-releases/releases/latest/download/install.sh \
+curl -fsSL https://gitee.com/lch8/lap-v2-releases/releases/download/v0.1.0/install.sh \
   | sudo env LAP_DAEMON_VERSION=v0.1.0 bash
 ```
 
 `LAP_DAEMON_VERSION` changes the manifest URL to:
 
 ```text
-https://github.com/omni-stack-gen/lap-v2-releases/releases/download/<version>/manifest.json
+https://gitee.com/lch8/lap-v2-releases/releases/download/<version>/manifest.json
 ```
 
 ## Custom Package Base
@@ -70,7 +70,7 @@ https://github.com/omni-stack-gen/lap-v2-releases/releases/download/<version>/ma
 Use this only for internal testing or private customer mirrors:
 
 ```bash
-curl -fsSL https://github.com/omni-stack-gen/lap-v2-releases/releases/latest/download/install.sh \
+curl -fsSL https://gitee.com/lch8/lap-v2-releases/releases/download/v0.1.0/install.sh \
   | sudo env LAP_RELEASE_PACKAGE_BASE=http://<gitlab-host>/api/v4/projects/<project-id>/packages/generic/<package> bash
 ```
 
@@ -110,8 +110,8 @@ lap-toolchains.tar.gz
 `manifest.json` is the installer's source of truth for asset URLs and hashes.
 `SHA256SUMS` is included for manual verification and release auditing.
 
-For a moving "latest" install command, mark the intended GitHub Release as the
-latest non-draft release and upload the same asset names there.
+For a moving install command, publish the intended Gitee Release and upload the
+same asset names there.
 
 ## Operator Checks
 

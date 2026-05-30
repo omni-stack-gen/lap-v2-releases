@@ -57,10 +57,10 @@ class InstallDryRunTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
         self.assertEqual(
             result.stdout.strip(),
-            "https://github.com/omni-stack-gen/lap-v2-releases/releases/latest/download/manifest.json",
+            "https://gitee.com/lch8/lap-v2-releases/releases/download/v0.1.0/manifest.json",
         )
 
-    def test_installer_can_pin_github_release_tag(self) -> None:
+    def test_installer_can_pin_gitee_release_tag(self) -> None:
         env = {
             **os.environ,
             "LAP_INSTALL_DRY_RUN": "1",
@@ -78,7 +78,7 @@ class InstallDryRunTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
         self.assertEqual(
             result.stdout.strip(),
-            "https://github.com/omni-stack-gen/lap-v2-releases/releases/download/v1.2.3/manifest.json",
+            "https://gitee.com/lch8/lap-v2-releases/releases/download/v1.2.3/manifest.json",
         )
 
     def test_installer_keeps_package_base_override_for_internal_mirrors(self) -> None:
