@@ -28,7 +28,7 @@ install root:       /home/<daemon_user>/lap
 state dir:          /data/lap
 project workspace:  /data/lap/workspace
 pack projects:      /data/lap-packages
-toolchains:         /home/<daemon_user>/toolchains
+toolchains:         /home/<daemon_user>/toolchains (created empty unless supplied by a later toolchain bundle)
 systemd unit:       /etc/systemd/system/lap.service
 install report:     /data/lap/install-report.json
 ```

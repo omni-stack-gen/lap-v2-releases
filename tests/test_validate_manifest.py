@@ -24,7 +24,7 @@ class ManifestValidatorTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("manifest ok", result.stdout)
 
-    def test_missing_toolchain_is_rejected(self) -> None:
+    def test_toolchain_asset_is_optional(self) -> None:
         data = json.loads(EXAMPLE.read_text(encoding="utf-8"))
         data["assets"] = [
             asset for asset in data["assets"] if asset["kind"] != "toolchain"
@@ -38,8 +38,7 @@ class ManifestValidatorTests(unittest.TestCase):
                 text=True,
                 check=False,
             )
-        self.assertEqual(result.returncode, 2)
-        self.assertIn("missing required asset kinds", result.stderr)
+        self.assertEqual(result.returncode, 0, result.stderr)
 
 
 if __name__ == "__main__":

@@ -375,7 +375,7 @@ else:
         strip = asset.get("strip_components", 0)
         if not isinstance(strip, int) or strip < 0:
             errors.append(f"assets[{index}].strip_components must be a non-negative integer")
-    missing = {"daemon_runtime", "pack_projects", "toolchain"} - seen_kinds
+    missing = {"daemon_runtime", "pack_projects"} - seen_kinds
     if missing:
         errors.append(f"missing required asset kinds: {sorted(missing)}")
 

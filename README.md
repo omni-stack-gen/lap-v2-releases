@@ -9,7 +9,6 @@ host into the expected LAP v2 runtime shape:
 - daemon runtime installed under the selected daemon user's home
 - state and project workspace under `/data/lap`
 - pack projects under `/data/lap-packages`
-- toolchains under the selected daemon user's home
 - `lap.service` managed by systemd
 
 For the current LAN test stack, keep these endpoints distinct:

@@ -113,7 +113,7 @@ def load_config(path: Path) -> ReleaseConfig:
             )
         )
 
-    missing = VALID_KINDS - seen_kinds
+    missing = {"daemon_runtime", "pack_projects"} - seen_kinds
     if missing:
         raise BuildConfigError(f"missing required asset kinds: {sorted(missing)}")
 

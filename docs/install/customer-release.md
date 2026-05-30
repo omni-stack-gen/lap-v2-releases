@@ -11,8 +11,8 @@ curl -fsSL https://gitee.com/lch8/lap-v2-releases/releases/download/v0.1.0/insta
 
 The installer downloads `manifest.json` from the same Gitee Release asset set,
 verifies each asset hash declared by the manifest, installs the daemon runtime,
-installs pack projects and toolchains, writes `lap.service`, and optionally
-pairs the daemon during the same flow.
+installs pack projects, writes `lap.service`, and optionally pairs the daemon
+during the same flow.
 
 The installer also prepares the daemon user's systemd user manager by enabling
 linger and starting `user@<uid>.service`; `lap.service` receives the matching
@@ -87,7 +87,7 @@ Customers can see whatever is inside release assets after installation:
 
 - daemon runtime wrapper and Python venv under the selected install root
 - pack projects under `/data/lap-packages`
-- toolchains under the selected toolchain directory
+- no toolchain bundle by default; compile-toolchain installation is deferred
 - generated systemd unit and install report
 
 They do not need the private source/build repository. If any scripts or build
@@ -104,7 +104,6 @@ manifest.json
 SHA256SUMS
 lap-daemon-runtime.tar.gz
 lap-pack-projects.tar.gz
-lap-toolchains.tar.gz
 ```
 
 `manifest.json` is the installer's source of truth for asset URLs and hashes.

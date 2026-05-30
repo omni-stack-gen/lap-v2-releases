@@ -107,7 +107,7 @@ def validate(data: dict[str, Any]) -> list[str]:
         if not isinstance(strip_components, int) or strip_components < 0:
             errors.append(_err(f"assets[{index}].strip_components must be a non-negative integer"))
 
-    required_kinds = {"daemon_runtime", "pack_projects", "toolchain"}
+    required_kinds = {"daemon_runtime", "pack_projects"}
     missing = required_kinds - seen_kinds
     if missing:
         errors.append(_err(f"missing required asset kinds: {sorted(missing)}"))

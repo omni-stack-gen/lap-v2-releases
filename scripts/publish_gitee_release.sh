@@ -43,16 +43,6 @@ release_assets() {
   for asset in "${base_assets[@]}"; do
     printf '%s\n' "$asset"
   done
-  shopt -s nullglob
-  local parts=("$DIST_DIR"/lap-toolchains.tar.gz.part*)
-  shopt -u nullglob
-  if ((${#parts[@]})); then
-    for part in "${parts[@]}"; do
-      basename "$part"
-    done
-  else
-    printf '%s\n' "lap-toolchains.tar.gz"
-  fi
 }
 
 curl_config() {
