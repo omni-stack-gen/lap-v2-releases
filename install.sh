@@ -275,13 +275,32 @@ for asset in data["assets"]:
         asset["id"],
         asset["kind"],
         asset["version"],
-        asset["url"],
+        asset.get("url", ""),
         asset["sha256"],
         asset.get("archive", "tar.gz"),
         asset["target"],
         str(asset.get("strip_components", 0)),
     ]
     print("\t".join(fields))
+PY
+}
+
+manifest_asset_parts_tsv() {
+  local manifest="$1"
+  local asset_id="$2"
+  python3 - "$manifest" "$asset_id" <<'PY'
+import json
+import sys
+
+manifest, asset_id = sys.argv[1], sys.argv[2]
+with open(manifest, encoding="utf-8") as fh:
+    data = json.load(fh)
+for asset in data["assets"]:
+    if asset.get("id") != asset_id:
+        continue
+    for part in asset.get("parts", []):
+        print("\t".join([part["name"], part["url"], part["sha256"]]))
+    break
 PY
 }
 
@@ -329,9 +348,24 @@ else:
             errors.append(f"assets[{index}].kind is required")
         else:
             seen_kinds.add(kind)
-        for field in ("version", "url"):
+        for field in ("version",):
             if not isinstance(asset.get(field), str) or not asset[field]:
                 errors.append(f"assets[{index}].{field} is required")
+        has_url = isinstance(asset.get("url"), str) and bool(asset["url"])
+        parts = asset.get("parts", [])
+        has_parts = isinstance(parts, list) and bool(parts)
+        if not has_url and not has_parts:
+            errors.append(f"assets[{index}] must define url or parts")
+        if has_parts:
+            for part_index, part in enumerate(parts):
+                if not isinstance(part, dict):
+                    errors.append(f"assets[{index}].parts[{part_index}] must be an object")
+                    continue
+                for field in ("name", "url", "sha256"):
+                    if not isinstance(part.get(field), str) or not part[field]:
+                        errors.append(f"assets[{index}].parts[{part_index}].{field} is required")
+                if isinstance(part.get("sha256"), str) and not sha_re.match(part["sha256"]):
+                    errors.append(f"assets[{index}].parts[{part_index}].sha256 must be 64 lowercase hex chars")
         if not isinstance(asset.get("sha256"), str) or not sha_re.match(asset["sha256"]):
             errors.append(f"assets[{index}].sha256 must be 64 lowercase hex chars")
         if asset.get("archive") not in archives:
@@ -552,16 +586,35 @@ install_assets() {
   local manifest="$1"
   local tmp_dir="$2"
   local id kind version url sha archive target_token strip target_path asset_file
+  local parts_file part_count part_name part_url part_sha part_file
 
   while IFS=$'\t' read -r id kind version url sha archive target_token strip; do
     target_path="$(resolve_target "$target_token")"
     log "asset $id ($kind $version) -> $target_path"
+    parts_file="$tmp_dir/$id.parts"
+    manifest_asset_parts_tsv "$manifest" "$id" > "$parts_file"
+    part_count="$(wc -l < "$parts_file" | tr -d '[:space:]')"
     if is_dry_run; then
-      log "dry run: would download $url"
+      if [[ "$part_count" -gt 0 ]]; then
+        log "dry run: would download $part_count parts for $id"
+      else
+        log "dry run: would download $url"
+      fi
       continue
     fi
     asset_file="$tmp_dir/$id.asset"
-    download_file "$url" "$asset_file"
+    if [[ "$part_count" -gt 0 ]]; then
+      : > "$asset_file"
+      while IFS=$'\t' read -r part_name part_url part_sha; do
+        part_file="$tmp_dir/$id.$part_name"
+        log "downloading $id part $part_name"
+        download_file "$part_url" "$part_file"
+        printf '%s  %s\n' "$part_sha" "$part_file" | sha256sum -c -
+        cat "$part_file" >> "$asset_file"
+      done < "$parts_file"
+    else
+      download_file "$url" "$asset_file"
+    fi
     printf '%s  %s\n' "$sha" "$asset_file" | sha256sum -c -
     mkdir -p "$target_path"
     tar -xzf "$asset_file" -C "$target_path" --strip-components "$strip"

@@ -64,9 +64,32 @@ def validate(data: dict[str, Any]) -> list[str]:
         else:
             seen_kinds.add(kind)
 
-        for field in ("version", "url"):
+        for field in ("version",):
             if not isinstance(asset.get(field), str) or not asset[field]:
                 errors.append(_err(f"assets[{index}].{field} is required"))
+
+        has_url = isinstance(asset.get("url"), str) and bool(asset["url"])
+        parts = asset.get("parts", [])
+        has_parts = isinstance(parts, list) and bool(parts)
+        if not has_url and not has_parts:
+            errors.append(_err(f"assets[{index}] must define url or parts"))
+        if has_parts:
+            for part_index, part in enumerate(parts):
+                if not isinstance(part, dict):
+                    errors.append(_err(f"assets[{index}].parts[{part_index}] must be an object"))
+                    continue
+                for field in ("name", "url", "sha256"):
+                    if not isinstance(part.get(field), str) or not part[field]:
+                        errors.append(
+                            _err(f"assets[{index}].parts[{part_index}].{field} is required")
+                        )
+                part_sha256 = part.get("sha256")
+                if isinstance(part_sha256, str) and not _SHA256_RE.match(part_sha256):
+                    errors.append(
+                        _err(
+                            f"assets[{index}].parts[{part_index}].sha256 must be 64 lowercase hex chars"
+                        )
+                    )
 
         sha256 = asset.get("sha256")
         if not isinstance(sha256, str) or not _SHA256_RE.match(sha256):

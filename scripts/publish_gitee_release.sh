@@ -8,15 +8,6 @@ TARGET="${GITEE_TARGET_COMMITISH:-main}"
 DIST_DIR="${GITEE_RELEASE_DIST_DIR:-dist/$TAG}"
 API_BASE="${GITEE_API_BASE:-https://gitee.com/api/v5}"
 
-ASSETS=(
-  "install.sh"
-  "manifest.json"
-  "SHA256SUMS"
-  "lap-daemon-runtime.tar.gz"
-  "lap-pack-projects.tar.gz"
-  "lap-toolchains.tar.gz"
-)
-
 die() {
   printf '[gitee-release] ERROR: %s\n' "$*" >&2
   exit 1
@@ -35,9 +26,33 @@ require_token() {
 require_assets() {
   local asset
   [[ -d "$DIST_DIR" ]] || die "dist dir does not exist: $DIST_DIR"
-  for asset in "${ASSETS[@]}"; do
+  while IFS= read -r asset; do
     [[ -f "$DIST_DIR/$asset" ]] || die "missing asset: $DIST_DIR/$asset"
+  done < <(release_assets)
+}
+
+release_assets() {
+  local base_assets=(
+    "install.sh"
+    "manifest.json"
+    "SHA256SUMS"
+    "lap-daemon-runtime.tar.gz"
+    "lap-pack-projects.tar.gz"
+  )
+  local asset part
+  for asset in "${base_assets[@]}"; do
+    printf '%s\n' "$asset"
   done
+  shopt -s nullglob
+  local parts=("$DIST_DIR"/lap-toolchains.tar.gz.part*)
+  shopt -u nullglob
+  if ((${#parts[@]})); then
+    for part in "${parts[@]}"; do
+      basename "$part"
+    done
+  else
+    printf '%s\n' "lap-toolchains.tar.gz"
+  fi
 }
 
 curl_config() {
@@ -82,18 +97,26 @@ create_release() {
     release_id_from_json
 }
 
+delete_release() {
+  local cfg="$1"
+  local release_id="$2"
+  curl -fsS -K "$cfg" \
+    -X DELETE \
+    "$API_BASE/repos/$OWNER/$REPO/releases/$release_id" >/dev/null
+}
+
 upload_assets() {
   local cfg="$1"
   local release_id="$2"
   local asset
 
-  for asset in "${ASSETS[@]}"; do
+  while IFS= read -r asset; do
     log "uploading $asset"
     curl -fsS -K "$cfg" \
       -X POST \
       -F "file=@$DIST_DIR/$asset" \
       "$API_BASE/repos/$OWNER/$REPO/releases/$release_id/attach_files" >/dev/null
-  done
+  done < <(release_assets)
 }
 
 main() {
@@ -106,6 +129,11 @@ main() {
   curl_config "$cfg_path"
 
   release_id="$(find_release_id "$cfg_path")"
+  if [[ -n "$release_id" && "${GITEE_RECREATE_RELEASE:-0}" == "1" ]]; then
+    log "deleting existing release $TAG id=$release_id"
+    delete_release "$cfg_path" "$release_id"
+    release_id=""
+  fi
   if [[ -z "$release_id" ]]; then
     log "creating release $TAG on $OWNER/$REPO"
     release_id="$(create_release "$cfg_path")"
