@@ -6,7 +6,7 @@ command and do not need access to the source/build repository.
 ## Install v0.1.1
 
 ```bash
-curl -fsSL https://gitee.com/lch8/lap-v2-releases/releases/download/v0.1.1/install.sh | sudo bash
+curl -fsSL https://github.com/omni-stack-gen/lap-v2-releases/releases/download/v0.1.1/install.sh | sudo bash
 ```
 
 The installer downloads `manifest.json` from the same Gitee Release asset set,
@@ -55,14 +55,14 @@ service.
 ## Pin A Version
 
 ```bash
-curl -fsSL https://gitee.com/lch8/lap-v2-releases/releases/download/v0.1.1/install.sh \
+curl -fsSL https://github.com/omni-stack-gen/lap-v2-releases/releases/download/v0.1.1/install.sh \
   | sudo env LAP_DAEMON_VERSION=v0.1.1 bash
 ```
 
 `LAP_DAEMON_VERSION` changes the manifest URL to:
 
 ```text
-https://gitee.com/lch8/lap-v2-releases/releases/download/<version>/manifest.json
+https://github.com/omni-stack-gen/lap-v2-releases/releases/download/<version>/manifest.json
 ```
 
 ## Custom Package Base
@@ -70,7 +70,7 @@ https://gitee.com/lch8/lap-v2-releases/releases/download/<version>/manifest.json
 Use this only for internal testing or private customer mirrors:
 
 ```bash
-curl -fsSL https://gitee.com/lch8/lap-v2-releases/releases/download/v0.1.1/install.sh \
+curl -fsSL https://github.com/omni-stack-gen/lap-v2-releases/releases/download/v0.1.1/install.sh \
   | sudo env LAP_RELEASE_PACKAGE_BASE=http://<gitlab-host>/api/v4/projects/<project-id>/packages/generic/<package> bash
 ```
 
