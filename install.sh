@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-SCRIPT_VERSION="0.1.0-dev"
-DEFAULT_RELEASE_BASE_URL="https://gitee.com/lch8/lap-v2-releases/releases/download/v0.1.0"
+SCRIPT_VERSION="0.1.1-dev"
+DEFAULT_RELEASE_BASE_URL="https://gitee.com/lch8/lap-v2-releases/releases/download/v0.1.1"
 APT_PACKAGES=(
   ca-certificates
   curl
