@@ -62,11 +62,11 @@ sudo /home/<daemon_user>/lap/bin/lap-pair <PAIR_CODE> --saas-url http://192.168.
 sudo /home/dpower/lap/bin/lap-pair 4HAQ-64J2 --saas-url http://192.168.1.108:38082
 ```
 
-Equivalent raw CLI (this is what the web UI prints):
-
-```bash
-sudo /home/dpower/lap/bin/lap pair <PAIR_CODE> --saas-url http://192.168.1.108:38082
-```
+> The web UI prints this same `lap-pair` command. **Avoid the raw
+> `sudo …/lap pair <code>`** — run as root it writes `/data/lap/identity.json`
+> as root (mode 0600), and `lap.service` (which runs as the daemon user) then
+> can't read it ("permission denied"). `lap-pair` runs the pair as the daemon
+> user, so the owner is correct.
 
 > Paste the **pair HTTP URL** (`:38082`), not the daemon WebSocket URL. The
 > `ws://…:38081/v2/wss` endpoint comes back from the pair API and is written into
