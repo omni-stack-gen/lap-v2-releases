@@ -1,12 +1,12 @@
 {
-  "version": "v0.1.0-local",
+  "version": "v0.1.1-local",
   "default_saas_url": "https://api.omnistack.io",
-  "asset_base_url": "http://192.168.1.108:8090/api/v4/projects/5/packages/generic/lap-v2-release/v0.1.0-local",
+  "asset_base_url": "http://192.168.1.108:8090/api/v4/projects/5/packages/generic/lap-v2-release/v0.1.1-local",
   "assets": [
     {
       "id": "lap-daemon-runtime",
       "kind": "daemon_runtime",
-      "version": "v0.1.0-local",
+      "version": "v0.1.1-local",
       "source_dir": "/data/lch/work/omni-stack-gen/release-inputs/lap-daemon-runtime",
       "archive_name": "lap-daemon-runtime.tar.gz",
       "target": "install_root",
@@ -17,7 +17,7 @@
     {
       "id": "lap-pack-projects",
       "kind": "pack_projects",
-      "version": "v0.1.0-local",
+      "version": "v0.1.1-local",
       "source_dir": "/data/lch/work/omni-stack-gen/lap-packages",
       "archive_name": "lap-pack-projects.tar.gz",
       "target": "packages_root",
@@ -31,7 +31,7 @@
     {
       "id": "lap-toolchains",
       "kind": "toolchain",
-      "version": "v0.1.0-local",
+      "version": "v0.1.1-local",
       "source_dir": "/data/lch/work/omni-stack-gen/release-inputs/toolchains",
       "archive_name": "lap-toolchains.tar.gz",
       "target": "toolchain_root",
