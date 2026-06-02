@@ -267,7 +267,11 @@ download_file() {
   if [[ "$url" == file://* ]]; then
     cp -- "${url#file://}" "$dest"
   elif [[ "$url" == http://* || "$url" == https://* ]]; then
-    curl -fsSL --retry 3 --connect-timeout 20 --output "$dest" "$url"
+    # --progress-bar: show a download bar (the asset tarballs are big and the
+    # plain -s made it look hung). --speed-limit/--speed-time: abort a stalled
+    # transfer (<1KB/s for 30s) so --retry kicks in instead of hanging forever.
+    curl -fL --progress-bar --retry 3 --connect-timeout 20 \
+      --speed-limit 1024 --speed-time 30 --output "$dest" "$url"
   elif [[ "$url" == /* || "$url" == ./* || "$url" == ../* ]]; then
     cp -- "$url" "$dest"
   else
