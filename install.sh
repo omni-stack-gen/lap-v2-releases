@@ -50,6 +50,16 @@ SLINT_PREVIEW_APT_PACKAGES=(
   libwayland-egl1
 )
 
+# Build deps for compiling slint-viewer from source via cargo. Only added to the
+# apt set when slint preview is enabled AND no prebuilt LAP_SLINT_VIEWER_URL is
+# given (see provision_slint_preview).
+SLINT_BUILD_APT_PACKAGES=(
+  build-essential
+  pkg-config
+  curl
+  libfontconfig1-dev
+)
+
 log() {
   printf '[lap-install] %s\n' "$*"
 }
@@ -486,14 +496,29 @@ slint_preview_enabled() {
   [[ "${LAP_INSTALL_SLINT_PREVIEW:-0}" == "1" ]]
 }
 
+# Ensure the daemon user has a cargo toolchain so `cargo install slint-viewer`
+# can build from source. If cargo is missing, install Rust via rustup (minimal
+# profile, no PATH edits — provision_slint_preview sets PATH explicitly).
+ensure_cargo() {
+  local dhome
+  dhome="$(home_for_user "$DAEMON_USER")"
+  if [[ -x "$dhome/.cargo/bin/cargo" ]] || command -v cargo >/dev/null 2>&1; then
+    return 0
+  fi
+  log "cargo not found — installing Rust toolchain via rustup for $DAEMON_USER (minimal)"
+  sudo -u "$DAEMON_USER" env "HOME=$dhome" bash -c \
+    'curl --proto "=https" --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal --no-modify-path' \
+    || die "rustup install failed; install Rust manually or set LAP_SLINT_VIEWER_URL to a prebuilt slint-viewer"
+}
+
 # Optional: provision slint-viewer so lap_agent.preview() can render generated
 # .slint UIs live on THIS daemon host's display (Option A). Opt-in via
 # LAP_INSTALL_SLINT_PREVIEW=1 (default off — most daemon hosts are headless
 # production VMs with no display). Binary source precedence:
 #   1. LAP_SLINT_VIEWER_URL    — a .tar.gz containing a `slint-viewer` binary
 #      (build once from the slint fork; optional LAP_SLINT_VIEWER_SHA256 to pin).
-#   2. cargo, only if already present — `cargo install slint-viewer`.
-#   3. neither — warn (non-fatal); operator installs slint-viewer later.
+#   2. otherwise — `cargo install slint-viewer`, auto-installing the Rust
+#      toolchain via rustup first when cargo is missing (slow; builds from source).
 # The binary lands in $INSTALL_ROOT/bin and is symlinked into /usr/local/bin so
 # the daemon's bash tool resolves a bare `slint-viewer` on PATH.
 provision_slint_preview() {
@@ -521,14 +546,15 @@ provision_slint_preview() {
     found="$(find "$extract" -type f -name slint-viewer -print -quit)"
     [[ -n "$found" ]] || die "slint-viewer binary not found inside $url"
     install -m 0755 "$found" "$dest"
-  elif command -v cargo >/dev/null 2>&1; then
-    log "LAP_SLINT_VIEWER_URL not set; building slint-viewer via cargo (slow; needs build deps)"
-    sudo -u "$DAEMON_USER" env "HOME=$(home_for_user "$DAEMON_USER")" \
+  else
+    ensure_cargo
+    local dhome
+    dhome="$(home_for_user "$DAEMON_USER")"
+    log "LAP_SLINT_VIEWER_URL not set; building slint-viewer via cargo (slow; from source)"
+    sudo -u "$DAEMON_USER" env "HOME=$dhome" \
+      "PATH=$dhome/.cargo/bin:/usr/local/bin:/usr/bin:/bin" \
       cargo install slint-viewer --version '~1.16' --root "$INSTALL_ROOT" \
       || die "cargo install slint-viewer failed; set LAP_SLINT_VIEWER_URL to a prebuilt tarball instead"
-  else
-    log "WARNING: slint-viewer not provisioned — set LAP_SLINT_VIEWER_URL to a prebuilt .tar.gz (or install Rust/cargo). lap_agent preview() will not work until slint-viewer is on PATH."
-    return 0
   fi
   chown "$DAEMON_USER:$DAEMON_GROUP" "$dest" 2>/dev/null || true
   ln -sf "$dest" "$link"
@@ -1134,6 +1160,10 @@ EOF
   if slint_preview_enabled; then
     APT_PACKAGES+=("${SLINT_PREVIEW_APT_PACKAGES[@]}")
     log "slint preview enabled: added GUI/font packages to the apt set"
+    if [[ -z "${LAP_SLINT_VIEWER_URL:-}" ]]; then
+      APT_PACKAGES+=("${SLINT_BUILD_APT_PACKAGES[@]}")
+      log "no prebuilt slint-viewer URL: added cargo build deps to the apt set"
+    fi
   fi
   install_apt_packages
   prepare_device_permissions

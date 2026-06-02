@@ -63,6 +63,33 @@ class InstallDryRunTests(unittest.TestCase):
         self.assertIn("slint preview enabled: added GUI/font packages", result.stdout)
         self.assertIn("would provision slint-viewer", result.stdout)
         self.assertIn("slint preview:    enabled", result.stdout)
+        # No prebuilt URL → cargo build deps are added so the fallback
+        # `cargo install slint-viewer` can compile from source.
+        self.assertIn("added cargo build deps", result.stdout)
+
+    def test_installer_slint_preview_prebuilt_url_skips_build_deps(self) -> None:
+        env = {
+            **os.environ,
+            "LAP_INSTALL_DRY_RUN": "1",
+            "LAP_INSTALL_SLINT_PREVIEW": "1",
+            "LAP_SLINT_VIEWER_URL": "https://example.invalid/slint-viewer.tar.gz",
+            "LAP_RELEASE_MANIFEST_URL": f"file://{EXAMPLE}",
+            "SUDO_USER": os.environ.get("USER", "laptest"),
+        }
+        answers = "\n\n\n\n\n\ny\nn\n"
+        result = subprocess.run(
+            ["bash", str(INSTALLER)],
+            input=answers,
+            capture_output=True,
+            text=True,
+            env=env,
+            check=False,
+            timeout=20,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        self.assertIn("slint preview enabled: added GUI/font packages", result.stdout)
+        # A prebuilt binary is supplied → no need for cargo build deps.
+        self.assertNotIn("added cargo build deps", result.stdout)
 
     def test_installer_slint_preview_off_by_default(self) -> None:
         env = {
