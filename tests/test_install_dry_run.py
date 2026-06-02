@@ -40,6 +40,52 @@ class InstallDryRunTests(unittest.TestCase):
         self.assertIn("dry run: would configure serial/USB permissions", result.stdout)
         self.assertIn("dry run: would enable linger", result.stdout)
 
+    def test_installer_slint_preview_opt_in(self) -> None:
+        env = {
+            **os.environ,
+            "LAP_INSTALL_DRY_RUN": "1",
+            "LAP_INSTALL_SLINT_PREVIEW": "1",
+            "LAP_RELEASE_MANIFEST_URL": f"file://{EXAMPLE}",
+            "SUDO_USER": os.environ.get("USER", "laptest"),
+        }
+        # Same 8 answers as the default flow — opt-in is env-gated, no new prompt.
+        answers = "\n\n\n\n\n\ny\nn\n"
+        result = subprocess.run(
+            ["bash", str(INSTALLER)],
+            input=answers,
+            capture_output=True,
+            text=True,
+            env=env,
+            check=False,
+            timeout=20,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        self.assertIn("slint preview enabled: added GUI/font packages", result.stdout)
+        self.assertIn("would provision slint-viewer", result.stdout)
+        self.assertIn("slint preview:    enabled", result.stdout)
+
+    def test_installer_slint_preview_off_by_default(self) -> None:
+        env = {
+            **os.environ,
+            "LAP_INSTALL_DRY_RUN": "1",
+            "LAP_RELEASE_MANIFEST_URL": f"file://{EXAMPLE}",
+            "SUDO_USER": os.environ.get("USER", "laptest"),
+        }
+        answers = "\n\n\n\n\n\ny\nn\n"
+        result = subprocess.run(
+            ["bash", str(INSTALLER)],
+            input=answers,
+            capture_output=True,
+            text=True,
+            env=env,
+            check=False,
+            timeout=20,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        # Headless default: no slint-viewer provisioning, no extra prompt/output.
+        self.assertNotIn("slint-viewer", result.stdout)
+        self.assertNotIn("slint preview", result.stdout)
+
     def test_installer_defaults_to_release_only_manifest_url(self) -> None:
         env = {
             **os.environ,

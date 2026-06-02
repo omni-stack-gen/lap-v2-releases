@@ -23,6 +23,33 @@ APT_PACKAGES=(
   libusb-1.0-0-dev
 )
 
+# Extra runtime libs + CJK font for the OPTIONAL slint-viewer preview support
+# (lap_agent.preview() renders generated .slint live on this daemon host's
+# display). Only appended to the apt set when LAP_INSTALL_SLINT_PREVIEW=1, so
+# headless production daemons are unaffected. These are runtime .so libs (the
+# slint-viewer binary is prebuilt), covering winit X11/Wayland + GL backends.
+SLINT_PREVIEW_APT_PACKAGES=(
+  fonts-noto-cjk
+  libfontconfig1
+  libfreetype6
+  libxkbcommon0
+  libxkbcommon-x11-0
+  libxcb1
+  libxcb-render0
+  libxcb-shape0
+  libxcb-xfixes0
+  libx11-6
+  libxcursor1
+  libxi6
+  libxrandr2
+  libgl1
+  libegl1
+  libgles2
+  libwayland-client0
+  libwayland-cursor0
+  libwayland-egl1
+)
+
 log() {
   printf '[lap-install] %s\n' "$*"
 }
@@ -453,6 +480,59 @@ install_apt_packages() {
   log "installing apt packages"
   apt-get update
   DEBIAN_FRONTEND=noninteractive apt-get install -y "${APT_PACKAGES[@]}"
+}
+
+slint_preview_enabled() {
+  [[ "${LAP_INSTALL_SLINT_PREVIEW:-0}" == "1" ]]
+}
+
+# Optional: provision slint-viewer so lap_agent.preview() can render generated
+# .slint UIs live on THIS daemon host's display (Option A). Opt-in via
+# LAP_INSTALL_SLINT_PREVIEW=1 (default off — most daemon hosts are headless
+# production VMs with no display). Binary source precedence:
+#   1. LAP_SLINT_VIEWER_URL    — a .tar.gz containing a `slint-viewer` binary
+#      (build once from the slint fork; optional LAP_SLINT_VIEWER_SHA256 to pin).
+#   2. cargo, only if already present — `cargo install slint-viewer`.
+#   3. neither — warn (non-fatal); operator installs slint-viewer later.
+# The binary lands in $INSTALL_ROOT/bin and is symlinked into /usr/local/bin so
+# the daemon's bash tool resolves a bare `slint-viewer` on PATH.
+provision_slint_preview() {
+  slint_preview_enabled || return 0
+  local bin_dir="$INSTALL_ROOT/bin"
+  local dest="$bin_dir/slint-viewer"
+  local link="/usr/local/bin/slint-viewer"
+  if is_dry_run; then
+    log "dry run: would provision slint-viewer into $dest and symlink $link"
+    return 0
+  fi
+  mkdir -p "$bin_dir"
+  local url="${LAP_SLINT_VIEWER_URL:-}"
+  if [[ -n "$url" ]]; then
+    log "provisioning slint-viewer from $url"
+    local tarball="$INSTALL_TMP_DIR/slint-viewer.tar.gz"
+    download_file "$url" "$tarball"
+    if [[ -n "${LAP_SLINT_VIEWER_SHA256:-}" ]]; then
+      printf '%s  %s\n' "$LAP_SLINT_VIEWER_SHA256" "$tarball" | sha256sum -c -
+    fi
+    local extract="$INSTALL_TMP_DIR/slint-viewer-extract"
+    mkdir -p "$extract"
+    tar -xzf "$tarball" -C "$extract"
+    local found
+    found="$(find "$extract" -type f -name slint-viewer -print -quit)"
+    [[ -n "$found" ]] || die "slint-viewer binary not found inside $url"
+    install -m 0755 "$found" "$dest"
+  elif command -v cargo >/dev/null 2>&1; then
+    log "LAP_SLINT_VIEWER_URL not set; building slint-viewer via cargo (slow; needs build deps)"
+    sudo -u "$DAEMON_USER" env "HOME=$(home_for_user "$DAEMON_USER")" \
+      cargo install slint-viewer --version '~1.16' --root "$INSTALL_ROOT" \
+      || die "cargo install slint-viewer failed; set LAP_SLINT_VIEWER_URL to a prebuilt tarball instead"
+  else
+    log "WARNING: slint-viewer not provisioned — set LAP_SLINT_VIEWER_URL to a prebuilt .tar.gz (or install Rust/cargo). lap_agent preview() will not work until slint-viewer is on PATH."
+    return 0
+  fi
+  chown "$DAEMON_USER:$DAEMON_GROUP" "$dest" 2>/dev/null || true
+  ln -sf "$dest" "$link"
+  log "slint-viewer installed: $dest (symlinked $link)"
 }
 
 prepare_device_permissions() {
@@ -972,6 +1052,10 @@ Useful commands:
 If pairing was skipped:
   sudo $INSTALL_ROOT/bin/lap-pair <PAIR_CODE> --saas-url <SAAS_HTTP_URL>
 EOF
+  if slint_preview_enabled; then
+    printf 'slint preview:    enabled (slint-viewer at %s/bin/slint-viewer)\n' \
+      "$INSTALL_ROOT"
+  fi
 }
 
 main() {
@@ -1047,11 +1131,16 @@ EOF
   fi
 
   preflight_paths
+  if slint_preview_enabled; then
+    APT_PACKAGES+=("${SLINT_PREVIEW_APT_PACKAGES[@]}")
+    log "slint preview enabled: added GUI/font packages to the apt set"
+  fi
   install_apt_packages
   prepare_device_permissions
   prepare_sandbox_userns
   create_dirs
   install_assets "$manifest_path" "$INSTALL_TMP_DIR"
+  provision_slint_preview
   prepare_user_manager
   write_systemd_unit
   write_pair_helper "$default_saas_url"

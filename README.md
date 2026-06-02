@@ -26,12 +26,17 @@ curl -fsSL https://gitee.com/lch8/lap-v2-releases/releases/download/v0.1.0/insta
 The customer-facing release project should only expose install docs and release
 artifacts. Source code and raw build inputs stay in private/internal repos.
 
+Optional Slint preview support (render generated `.slint` live on a daemon host
+with a display) is **off by default**; enable with `LAP_INSTALL_SLINT_PREVIEW=1`
+— see [Slint preview support](docs/install/slint-preview.md).
+
 Start here:
 
 - [Customer release install guide](docs/install/customer-release.md)
 - [Linux installer requirements](docs/requirements/2026-05-26-lap-daemon-installer-v1.md)
 - [Linux install guide](docs/install/linux-production-vm.md)
 - [Cross-machine test release guide](docs/install/cross-machine-test.md)
+- [Slint preview support (optional)](docs/install/slint-preview.md)
 - [Windows USB notes](docs/install/windows-usbipd-notes.md)
 
 Development checks:
