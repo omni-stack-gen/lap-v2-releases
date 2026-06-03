@@ -25,7 +25,8 @@
         ".venv",
         "pack.sh",
         "Pack_FD_F1_R88R30_ADB_SPINOR",
-        "Pack_RL_F1s_DV10_2_SPINOR"
+        "Pack_RL_F1s_DV10_2_SPINOR",
+        "Pack_DP_F1_SMART_PANEL_SPINOR"
       ]
     },
     {
