@@ -33,7 +33,7 @@ curl -fsSL "http://192.168.1.108:8090/api/v4/projects/5/packages/generic/lap-v2-
 If the host has internet, the public default (GitHub) needs no override:
 
 ```bash
-curl -fsSL https://github.com/omni-stack-gen/lap-v2-releases/releases/download/v0.1.1/install.sh \
+curl -fsSL https://github.com/omni-stack-gen/lap-v2-releases/releases/download/v0.1.2/install.sh \
   | sudo env LAP_INSTALL_SLINT_PREVIEW=1 bash
 ```
 
@@ -84,7 +84,7 @@ sudo journalctl -u lap.service -f         # live logs
 Customer-facing install shape:
 
 ```bash
-curl -fsSL https://github.com/omni-stack-gen/lap-v2-releases/releases/download/v0.1.1/install.sh | sudo bash
+curl -fsSL https://github.com/omni-stack-gen/lap-v2-releases/releases/download/v0.1.2/install.sh | sudo bash
 ```
 
 The customer-facing release project should only expose install docs and release
