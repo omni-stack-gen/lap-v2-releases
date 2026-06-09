@@ -130,7 +130,7 @@ class InstallDryRunTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
         self.assertEqual(
             result.stdout.strip(),
-            "https://github.com/omni-stack-gen/lap-v2-releases/releases/download/v0.1.1/manifest.json",
+            "https://github.com/omni-stack-gen/lap-v2-releases/releases/download/v0.1.2/manifest.json",
         )
 
     def test_installer_can_pin_release_tag(self) -> None:
@@ -153,6 +153,69 @@ class InstallDryRunTests(unittest.TestCase):
             result.stdout.strip(),
             "https://github.com/omni-stack-gen/lap-v2-releases/releases/download/v1.2.3/manifest.json",
         )
+
+    def test_installer_gitee_source_uses_gitee_mirror(self) -> None:
+        env = {
+            **os.environ,
+            "LAP_INSTALL_DRY_RUN": "1",
+            "LAP_RELEASE_SOURCE": "gitee",
+            "SUDO_USER": os.environ.get("USER", "laptest"),
+        }
+        result = subprocess.run(
+            ["bash", "-c", f"source {INSTALLER}; manifest_url"],
+            capture_output=True,
+            text=True,
+            env=env,
+            check=False,
+            timeout=20,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        self.assertEqual(
+            result.stdout.strip(),
+            "https://gitee.com/lch8/lap-v2-releases/releases/download/v0.1.2/manifest.json",
+        )
+
+    def test_installer_gitee_source_with_pinned_version(self) -> None:
+        env = {
+            **os.environ,
+            "LAP_INSTALL_DRY_RUN": "1",
+            "LAP_RELEASE_SOURCE": "gitee",
+            "LAP_RELEASE_VERSION": "v0.1.2",
+            "SUDO_USER": os.environ.get("USER", "laptest"),
+        }
+        result = subprocess.run(
+            ["bash", "-c", f"source {INSTALLER}; manifest_url"],
+            capture_output=True,
+            text=True,
+            env=env,
+            check=False,
+            timeout=20,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        self.assertEqual(
+            result.stdout.strip(),
+            "https://gitee.com/lch8/lap-v2-releases/releases/download/v0.1.2/manifest.json",
+        )
+
+    def test_installer_rejects_unknown_release_source(self) -> None:
+        env = {
+            **os.environ,
+            "LAP_INSTALL_DRY_RUN": "1",
+            "LAP_RELEASE_SOURCE": "bogus",
+            "SUDO_USER": os.environ.get("USER", "laptest"),
+        }
+        # release_base_url is the top-level command here, so its `|| die` runs in
+        # this shell and aborts; via manifest_url it would be nested in $(...).
+        result = subprocess.run(
+            ["bash", "-c", f"source {INSTALLER}; release_base_url"],
+            capture_output=True,
+            text=True,
+            env=env,
+            check=False,
+            timeout=20,
+        )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("unknown LAP_RELEASE_SOURCE", result.stderr + result.stdout)
 
     def test_installer_keeps_package_base_override_for_internal_mirrors(self) -> None:
         env = {

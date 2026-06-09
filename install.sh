@@ -2,7 +2,13 @@
 set -Eeuo pipefail
 
 SCRIPT_VERSION="0.1.1-dev"
-DEFAULT_RELEASE_BASE_URL="https://github.com/omni-stack-gen/lap-v2-releases/releases/download/v0.1.1"
+# Release asset download hosts. LAP_RELEASE_SOURCE picks which mirror serves the
+# GitHub-style release layout: "github" (default, omni-stack-gen) or "gitee"
+# (lch8 mirror, for networks where GitHub is slow or blocked). An explicit
+# LAP_RELEASE_BASE_URL or LAP_RELEASE_PACKAGE_BASE still overrides the selection.
+GITHUB_RELEASE_BASE="https://github.com/omni-stack-gen/lap-v2-releases/releases/download"
+GITEE_RELEASE_BASE="https://gitee.com/lch8/lap-v2-releases/releases/download"
+DEFAULT_RELEASE_VERSION="v0.1.2"
 APT_PACKAGES=(
   ca-certificates
   curl
@@ -135,24 +141,38 @@ release_version_pin() {
   printf '%s' "${LAP_DAEMON_VERSION:-${LAP_RELEASE_VERSION:-}}"
 }
 
+release_source_base() {
+  # Prints the chosen mirror base, or returns 1 (caller dies) on an unknown
+  # source. Returning rather than calling die() here matters: this runs inside a
+  # "$(...)" command substitution, where a die/exit would only kill the subshell
+  # and bash's set -e would not abort the parent.
+  case "${LAP_RELEASE_SOURCE:-github}" in
+    github | GitHub | GITHUB) printf '%s' "$GITHUB_RELEASE_BASE" ;;
+    gitee | Gitee | GITEE) printf '%s' "$GITEE_RELEASE_BASE" ;;
+    *) return 1 ;;
+  esac
+}
+
 release_base_url() {
   if [[ -n "${LAP_RELEASE_BASE_URL:-}" ]]; then
     printf '%s' "${LAP_RELEASE_BASE_URL%/}"
     return
   fi
 
-  local package_base version
+  local package_base version source_base
   package_base="$(release_package_base)"
   package_base="${package_base%/}"
   version="$(release_version_pin)"
+  source_base="$(release_source_base)" ||
+    die "unknown LAP_RELEASE_SOURCE '${LAP_RELEASE_SOURCE:-}' (expected: github | gitee)"
   if [[ -n "$package_base" && -n "$version" ]]; then
     printf '%s/%s' "$package_base" "$version"
   elif [[ -n "$package_base" ]]; then
     printf '%s/latest' "$package_base"
   elif [[ -n "$version" ]]; then
-    printf 'https://github.com/omni-stack-gen/lap-v2-releases/releases/download/%s' "$version"
+    printf '%s/%s' "$source_base" "$version"
   else
-    printf '%s' "$DEFAULT_RELEASE_BASE_URL"
+    printf '%s/%s' "$source_base" "$DEFAULT_RELEASE_VERSION"
   fi
 }
 
@@ -496,8 +516,25 @@ install_apt_packages() {
   DEBIAN_FRONTEND=noninteractive apt-get install -y "${APT_PACKAGES[@]}"
 }
 
+# True on WSL (WSL1/WSL2). On WSL the daemon drives the Windows-side
+# slint-viewer.exe, so we never build/install a Linux slint-viewer here.
+# Detection prefers /proc (always readable under sudo, where the WSL_* env vars
+# are usually lost). Force with LAP_FORCE_WSL=1 (skip) / LAP_FORCE_WSL=0 (install).
+is_wsl() {
+  case "${LAP_FORCE_WSL:-}" in
+    1) return 0 ;;
+    0) return 1 ;;
+  esac
+  grep -qiE 'microsoft|wsl' /proc/sys/kernel/osrelease 2>/dev/null && return 0
+  grep -qiE 'microsoft|wsl' /proc/version 2>/dev/null && return 0
+  [[ -n "${WSL_DISTRO_NAME:-}" || -n "${WSL_INTEROP:-}" ]]
+}
+
+# slint-viewer is installed only when explicitly opted in
+# (LAP_INSTALL_SLINT_PREVIEW=1) AND not on WSL (see is_wsl) — gates the apt build
+# deps AND provision_slint_preview in one place.
 slint_preview_enabled() {
-  [[ "${LAP_INSTALL_SLINT_PREVIEW:-0}" == "1" ]]
+  [[ "${LAP_INSTALL_SLINT_PREVIEW:-0}" == "1" ]] && ! is_wsl
 }
 
 # Ensure the daemon user has a cargo toolchain so `cargo install slint-viewer`
@@ -1094,6 +1131,13 @@ main() {
   require_commands
 
   log "LAP daemon installer $SCRIPT_VERSION"
+
+  # Validate the release source up front, in the main shell, so a typo in
+  # LAP_RELEASE_SOURCE fails fast with a clear message instead of producing a
+  # broken manifest URL — release_base_url()'s own guard runs inside a "$(...)"
+  # command substitution and so cannot abort the parent.
+  release_source_base >/dev/null ||
+    die "unknown LAP_RELEASE_SOURCE '${LAP_RELEASE_SOURCE:-}' (expected: github | gitee)"
 
   local selected_manifest_url manifest_path release_version default_saas_url
   selected_manifest_url="$(manifest_url)"
