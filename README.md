@@ -1,5 +1,7 @@
 # lap-v2-release
 
+**English** · [简体中文](README.zh-CN.md)
+
 Release assets and installers for LAP v2 daemon deployments.
 
 This repository owns the release manifest, Linux production VM installer,
@@ -35,6 +37,15 @@ If the host has internet, the public default (GitHub) needs no override:
 ```bash
 curl -fsSL https://github.com/omni-stack-gen/lap-v2-releases/releases/download/v0.1.2/install.sh \
   | sudo env LAP_INSTALL_SLINT_PREVIEW=1 bash
+```
+
+In China (or when GitHub is slow/blocked), install from the Gitee mirror with
+`LAP_RELEASE_SOURCE=gitee` — the installer then pulls the manifest and assets
+from Gitee instead of GitHub:
+
+```bash
+curl -fsSL https://gitee.com/lch8/lap-v2-releases/releases/download/v0.1.2/install.sh \
+  | sudo env LAP_RELEASE_SOURCE=gitee LAP_INSTALL_SLINT_PREVIEW=1 bash
 ```
 
 When the installer asks whether to pair, answer **n** to skip and pair later.
