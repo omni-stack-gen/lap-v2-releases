@@ -10,11 +10,12 @@ host into the expected LAP v2 runtime shape:
 
 - daemon runtime installed under the selected daemon user's home
 - state and project workspace under `/data/lap`
-- pack projects under `/data/lap-packages`
+- on-demand pack project cache under `/data/lap-packages`
 - `lap.service` managed by systemd
 
 For the current LAN test stack, keep these endpoints distinct:
 
+- SaaS asset HTTP URL: `http://192.168.1.108:18000`
 - pair HTTP URL: `http://192.168.1.108:38082`
 - daemon WebSocket endpoint returned after pairing: `ws://192.168.1.108:38081/v2/wss`
 - MCP HTTP endpoint for `lap_agent`: `http://192.168.1.108:38080/mcp`
@@ -23,20 +24,29 @@ For the current LAN test stack, keep these endpoints distinct:
 
 ### 1. Install the daemon (one command)
 
-From the LAN GitLab package registry (no internet needed). `LAP_RELEASE_PACKAGE_BASE`
-makes the installer fetch the manifest + assets from the same LAN host:
+By default the installer asks for the SaaS asset HTTP URL, downloads the
+release manifest from SaaS, installs only the daemon runtime, and saves the
+manifest for later on-demand board assets:
 
-```bash
-curl -fsSL "http://192.168.1.108:8090/api/v4/projects/5/packages/generic/lap-v2-release/latest/install.sh" \
-  | sudo env LAP_RELEASE_PACKAGE_BASE="http://192.168.1.108:8090/api/v4/projects/5/packages/generic/lap-v2-release" \
-             LAP_INSTALL_SLINT_PREVIEW=1 bash
+```text
+<SaaS asset URL>/v1/assets/lap-release/manifest.json
 ```
 
-If the host has internet, the public default (GitHub) needs no override:
+For the current LAN stack:
 
 ```bash
 curl -fsSL https://github.com/omni-stack-gen/lap-v2-releases/releases/download/v0.1.2/install.sh \
-  | sudo env LAP_INSTALL_SLINT_PREVIEW=1 bash
+  | sudo env LAP_SAAS_URL="http://192.168.1.108:18000" \
+             LAP_PAIR_API_URL="http://192.168.1.108:38082" \
+             LAP_INSTALL_SLINT_PREVIEW=1 bash
+```
+
+To force the old public GitHub release layout for both manifest and assets, set
+`LAP_RELEASE_SOURCE=github`:
+
+```bash
+curl -fsSL https://github.com/omni-stack-gen/lap-v2-releases/releases/download/v0.1.2/install.sh \
+  | sudo env LAP_RELEASE_SOURCE=github LAP_INSTALL_SLINT_PREVIEW=1 bash
 ```
 
 In China (or when GitHub is slow/blocked), install from the Gitee mirror with
@@ -46,6 +56,15 @@ from Gitee instead of GitHub:
 ```bash
 curl -fsSL https://gitee.com/lch8/lap-v2-releases/releases/download/v0.1.2/install.sh \
   | sudo env LAP_RELEASE_SOURCE=gitee LAP_INSTALL_SLINT_PREVIEW=1 bash
+```
+
+For legacy LAN package registries, `LAP_RELEASE_PACKAGE_BASE` still overrides
+the manifest + asset base URL:
+
+```bash
+curl -fsSL "http://192.168.1.108:8090/api/v4/projects/5/packages/generic/lap-v2-release/latest/install.sh" \
+  | sudo env LAP_RELEASE_PACKAGE_BASE="http://192.168.1.108:8090/api/v4/projects/5/packages/generic/lap-v2-release" \
+             LAP_INSTALL_SLINT_PREVIEW=1 bash
 ```
 
 When the installer asks whether to pair, answer **n** to skip and pair later.
@@ -104,6 +123,51 @@ artifacts. Source code and raw build inputs stay in private/internal repos.
 Optional Slint preview support (render generated `.slint` live on a daemon host
 with a display) is **off by default**; enable with `LAP_INSTALL_SLINT_PREVIEW=1`
 — see [Slint preview support](docs/install/slint-preview.md).
+
+## Toolchain Asset Layout
+
+Each toolchain archive contains only its own directory and package-local
+metadata. It must not carry the global `toolchains.toml`. In the SaaS lazy
+asset flow, the installer does not download all `kind=toolchain` assets up
+front; the same metadata is used when a compile flow materializes a needed
+toolchain on the LAP host and refreshes `$TOOLCHAIN_ROOT/toolchains.toml`.
+
+Example archive layout:
+
+```text
+riscv64-linux-x86_64-20210512/
+|-- .omnistack-toolchain.toml
+|-- bin/
+|-- sysroot/
+`-- ...
+```
+
+Example `.omnistack-toolchain.toml`:
+
+```toml
+profile = "F1"
+target = "riscv64gc-unknown-linux-gnu"
+bin = ["bin"]
+cc = "bin/riscv64-unknown-linux-gnu-gcc"
+ar = "bin/riscv64-unknown-linux-gnu-ar"
+linker = "bin/riscv64-unknown-linux-gnu-gcc"
+```
+
+One LAP host can hold multiple SoC toolchains at the same time; each archive
+contributes a distinct `profile`, and the local registry is built from the
+toolchains that have actually been materialized.
+
+Operators can prefetch or inspect the same managed assets as the daemon. Run
+the command as the daemon user so installed files keep one owner:
+
+```bash
+sudo -u <daemon-user> -H <install-root>/bin/lap assets ensure --soc F1
+sudo -u <daemon-user> -H <install-root>/bin/lap assets ensure --board FD_F1_R88R30_ADB_SPINOR
+sudo -u <daemon-user> -H <install-root>/bin/lap assets status --soc F1 --json
+```
+
+With a non-default state directory, also pass `LAP_STATE_DIR=<state-dir>` so
+the CLI can load the installer-persisted asset settings.
 
 Start here:
 

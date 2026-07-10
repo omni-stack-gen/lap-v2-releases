@@ -2,13 +2,15 @@
 set -Eeuo pipefail
 
 SCRIPT_VERSION="0.1.1-dev"
-# Release asset download hosts. LAP_RELEASE_SOURCE picks which mirror serves the
-# GitHub-style release layout: "github" (default, omni-stack-gen) or "gitee"
-# (lch8 mirror, for networks where GitHub is slow or blocked). An explicit
-# LAP_RELEASE_BASE_URL or LAP_RELEASE_PACKAGE_BASE still overrides the selection.
+# Release asset download hosts. The default source is the OmniStack SaaS asset
+# endpoint entered during install. LAP_RELEASE_SOURCE=github|gitee keeps the old
+# GitHub-style release layout as an explicit fallback. An explicit
+# LAP_RELEASE_MANIFEST_URL, LAP_RELEASE_BASE_URL, or LAP_RELEASE_PACKAGE_BASE
+# still overrides the source selection.
 GITHUB_RELEASE_BASE="https://github.com/omni-stack-gen/lap-v2-releases/releases/download"
 GITEE_RELEASE_BASE="https://gitee.com/lch8/lap-v2-releases/releases/download"
 DEFAULT_RELEASE_VERSION="v0.1.2"
+DEFAULT_SAAS_URL="http://127.0.0.1:18000"
 APT_PACKAGES=(
   ca-certificates
   curl
@@ -141,12 +143,23 @@ release_version_pin() {
   printf '%s' "${LAP_DAEMON_VERSION:-${LAP_RELEASE_VERSION:-}}"
 }
 
+release_source_kind() {
+  printf '%s' "${LAP_RELEASE_SOURCE:-saas}"
+}
+
+validate_release_source() {
+  case "$(release_source_kind)" in
+    saas | SaaS | SAAS | github | GitHub | GITHUB | gitee | Gitee | GITEE) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
 release_source_base() {
   # Prints the chosen mirror base, or returns 1 (caller dies) on an unknown
   # source. Returning rather than calling die() here matters: this runs inside a
   # "$(...)" command substitution, where a die/exit would only kill the subshell
   # and bash's set -e would not abort the parent.
-  case "${LAP_RELEASE_SOURCE:-github}" in
+  case "$(release_source_kind)" in
     github | GitHub | GITHUB) printf '%s' "$GITHUB_RELEASE_BASE" ;;
     gitee | Gitee | GITEE) printf '%s' "$GITEE_RELEASE_BASE" ;;
     *) return 1 ;;
@@ -163,22 +176,53 @@ release_base_url() {
   package_base="$(release_package_base)"
   package_base="${package_base%/}"
   version="$(release_version_pin)"
-  source_base="$(release_source_base)" ||
-    die "unknown LAP_RELEASE_SOURCE '${LAP_RELEASE_SOURCE:-}' (expected: github | gitee)"
   if [[ -n "$package_base" && -n "$version" ]]; then
     printf '%s/%s' "$package_base" "$version"
   elif [[ -n "$package_base" ]]; then
     printf '%s/latest' "$package_base"
-  elif [[ -n "$version" ]]; then
-    printf '%s/%s' "$source_base" "$version"
   else
-    printf '%s/%s' "$source_base" "$DEFAULT_RELEASE_VERSION"
+    source_base="$(release_source_base)" ||
+      die "unknown LAP_RELEASE_SOURCE '${LAP_RELEASE_SOURCE:-}' (expected: github | gitee)"
+    if [[ -n "$version" ]]; then
+      printf '%s/%s' "$source_base" "$version"
+    else
+      printf '%s/%s' "$source_base" "$DEFAULT_RELEASE_VERSION"
+    fi
   fi
+}
+
+release_uses_saas_manifest() {
+  [[ -z "${LAP_RELEASE_MANIFEST_URL:-}" ]] || return 1
+  [[ -z "${LAP_RELEASE_BASE_URL:-}" ]] || return 1
+  [[ -z "$(release_package_base)" ]] || return 1
+  case "$(release_source_kind)" in
+    saas | SaaS | SAAS) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+default_install_saas_url() {
+  printf '%s' "${LAP_SAAS_URL:-$DEFAULT_SAAS_URL}"
+}
+
+default_pair_api_url() {
+  local fallback="$1"
+  printf '%s' "${LAP_PAIR_API_URL:-$fallback}"
+}
+
+saas_release_manifest_url() {
+  local saas_url="${1:-$(default_install_saas_url)}"
+  saas_url="${saas_url%/}"
+  printf '%s/v1/assets/lap-release/manifest.json' "$saas_url"
 }
 
 manifest_url() {
   if [[ -n "${LAP_RELEASE_MANIFEST_URL:-}" ]]; then
     printf '%s' "$LAP_RELEASE_MANIFEST_URL"
+    return
+  fi
+  if release_uses_saas_manifest; then
+    saas_release_manifest_url "${1:-}"
     return
   fi
   printf '%s/manifest.json' "$(release_base_url)"
@@ -436,7 +480,7 @@ else:
         strip = asset.get("strip_components", 0)
         if not isinstance(strip, int) or strip < 0:
             errors.append(f"assets[{index}].strip_components must be a non-negative integer")
-    missing = {"daemon_runtime", "pack_projects"} - seen_kinds
+    missing = {"daemon_runtime"} - seen_kinds
     if missing:
         errors.append(f"missing required asset kinds: {sorted(missing)}")
 
@@ -644,13 +688,17 @@ EOF
 
 preflight_paths() {
   if is_dry_run; then
-    log "dry run: would refuse non-empty install/toolchain/pack directories"
+    log "dry run: would refuse non-empty install directory"
     return
   fi
   local path
-  for path in "$INSTALL_ROOT" "$TOOLCHAIN_ROOT" "$PACKAGES_ROOT"; do
+  for path in "$INSTALL_ROOT"; do
     if dir_nonempty "$path"; then
-      die "refusing to overwrite non-empty directory: $path. Back it up or remove it, then rerun."
+      if [[ -x "$path/bin/lap" && -d "$path/.venv" ]]; then
+        log "existing LAP runtime detected at $path; daemon runtime will be replaced"
+      else
+        die "refusing to overwrite unrecognized non-empty directory: $path. Back it up or remove it, then rerun."
+      fi
     fi
   done
 }
@@ -660,10 +708,50 @@ create_dirs() {
     log "dry run: would create state/workspace directories and asset targets"
     return
   fi
-  mkdir -p "$STATE_DIR" "$WORKSPACE_ROOT" "$INSTALL_ROOT" "$TOOLCHAIN_ROOT" "$PACKAGES_ROOT"
+  mkdir -p "$STATE_DIR" "$WORKSPACE_ROOT" "$INSTALL_ROOT" "$TOOLCHAIN_ROOT" "$PACKAGES_ROOT" "$(asset_cache_dir)"
   chown -R "$DAEMON_USER:$DAEMON_GROUP" "$STATE_DIR" "$INSTALL_ROOT" "$TOOLCHAIN_ROOT" "$PACKAGES_ROOT"
   chmod 0700 "$STATE_DIR"
   chmod 0755 "$WORKSPACE_ROOT" "$PACKAGES_ROOT"
+}
+
+release_manifest_cache_path() {
+  printf '%s/release-manifest.json' "$STATE_DIR"
+}
+
+release_source_env_path() {
+  printf '%s/release-source.env' "$STATE_DIR"
+}
+
+asset_cache_dir() {
+  printf '%s/assets' "$STATE_DIR"
+}
+
+write_release_manifest_cache() {
+  local manifest="$1"
+  local manifest_url="$2"
+  local saas_url="$3"
+  local manifest_cache source_env cache_dir
+  manifest_cache="$(release_manifest_cache_path)"
+  source_env="$(release_source_env_path)"
+  cache_dir="$(asset_cache_dir)"
+  if is_dry_run; then
+    log "dry run: would cache release manifest at $manifest_cache"
+    return
+  fi
+
+  mkdir -p "$cache_dir"
+  cp -- "$manifest" "$manifest_cache"
+  cat > "$source_env" <<EOF
+LAP_RELEASE_MANIFEST_URL=$manifest_url
+LAP_RELEASE_MANIFEST_PATH=$manifest_cache
+LAP_RELEASE_SAAS_URL=$saas_url
+LAP_ASSET_CACHE_DIR=$cache_dir
+LAP_PACKAGES_ROOT=$PACKAGES_ROOT
+LAP_TOOLCHAINS_ROOT=$TOOLCHAIN_ROOT
+LAP_EXPECTED_UID=$DAEMON_UID
+EOF
+  chown "$DAEMON_USER:$DAEMON_GROUP" "$manifest_cache" "$source_env"
+  chmod 0644 "$manifest_cache" "$source_env"
 }
 
 prepare_sandbox_userns() {
@@ -729,6 +817,48 @@ prepare_user_manager() {
   [[ -S "$bus_path" ]] || die "user D-Bus socket is not available: $bus_path"
 }
 
+install_daemon_runtime_archive() {
+  local archive="$1"
+  local strip="$2"
+  local parent stage backup="" had_previous="false"
+  parent="$(dirname "$INSTALL_ROOT")"
+  mkdir -p "$parent"
+  stage="$(mktemp -d "$parent/.lap-runtime-stage.XXXXXX")"
+  if ! tar -xzf "$archive" -C "$stage" --strip-components "$strip"; then
+    rm -rf "$stage"
+    die "failed to extract daemon runtime"
+  fi
+  if [[ ! -x "$stage/bin/lap" || ! -d "$stage/.venv" ]]; then
+    rm -rf "$stage"
+    die "daemon runtime archive is missing executable bin/lap or .venv"
+  fi
+  if ! chown -R "$DAEMON_USER:$DAEMON_GROUP" "$stage"; then
+    rm -rf "$stage"
+    die "failed to set daemon runtime ownership"
+  fi
+
+  if dir_nonempty "$INSTALL_ROOT"; then
+    backup="$(mktemp -d "$parent/.lap-runtime-backup.XXXXXX")"
+    rmdir "$backup"
+    mv "$INSTALL_ROOT" "$backup"
+    had_previous="true"
+  elif [[ -d "$INSTALL_ROOT" ]]; then
+    rmdir "$INSTALL_ROOT"
+  fi
+
+  if ! mv "$stage" "$INSTALL_ROOT"; then
+    rm -rf "$stage"
+    if [[ "$had_previous" == "true" ]]; then
+      mv "$backup" "$INSTALL_ROOT" ||
+        die "daemon runtime replacement failed and rollback also failed: $backup"
+    fi
+    die "failed to activate daemon runtime"
+  fi
+  if [[ "$had_previous" == "true" ]]; then
+    rm -rf "$backup"
+  fi
+}
+
 install_assets() {
   local manifest="$1"
   local tmp_dir="$2"
@@ -737,6 +867,10 @@ install_assets() {
 
   while IFS=$'\t' read -r id kind version url sha archive target_token strip; do
     target_path="$(resolve_target "$target_token")"
+    if [[ "$kind" != "daemon_runtime" ]]; then
+      log "lazy asset $id ($kind $version) -> $target_path (downloaded on demand)"
+      continue
+    fi
     log "asset $id ($kind $version) -> $target_path"
     parts_file="$tmp_dir/$id.parts"
     manifest_asset_parts_tsv "$manifest" "$id" > "$parts_file"
@@ -763,15 +897,18 @@ install_assets() {
       download_file "$url" "$asset_file"
     fi
     printf '%s  %s\n' "$sha" "$asset_file" | sha256sum -c -
-    mkdir -p "$target_path"
-    tar -xzf "$asset_file" -C "$target_path" --strip-components "$strip"
-    chown -R "$DAEMON_USER:$DAEMON_GROUP" "$target_path"
+    install_daemon_runtime_archive "$asset_file" "$strip"
   done < <(manifest_assets_tsv "$manifest")
 }
 
 write_systemd_unit() {
+  local release_manifest_url="$1"
+  local default_saas_url="$2"
   local unit="/etc/systemd/system/lap.service"
   local lap_bin="$INSTALL_ROOT/bin/lap"
+  local release_manifest_path asset_cache
+  release_manifest_path="$(release_manifest_cache_path)"
+  asset_cache="$(asset_cache_dir)"
   local insecure_ws_line=""
   if [[ "${ALLOW_INSECURE_WS:-false}" == "true" ]]; then
     insecure_ws_line="Environment=LAP_ALLOW_INSECURE_WS=1"
@@ -801,8 +938,12 @@ WorkingDirectory=$INSTALL_ROOT
 Environment=LAP_STATE_DIR=$STATE_DIR
 Environment=LAP_WORKSPACE_ROOT=$WORKSPACE_ROOT
 Environment=LAP_PACKAGES_ROOT=$PACKAGES_ROOT
-Environment=LAP_BASH_ALLOWED_EXTRA_BIND_PREFIXES=$PACKAGES_ROOT
+Environment=LAP_BASH_ALLOWED_EXTRA_BIND_PREFIXES=$PACKAGES_ROOT,$TOOLCHAIN_ROOT
 Environment=LAP_TOOLCHAINS_ROOT=$TOOLCHAIN_ROOT
+Environment=LAP_RELEASE_MANIFEST_URL=$release_manifest_url
+Environment=LAP_RELEASE_MANIFEST_PATH=$release_manifest_path
+Environment=LAP_RELEASE_SAAS_URL=$default_saas_url
+Environment=LAP_ASSET_CACHE_DIR=$asset_cache
 Environment=LAP_EXPECTED_UID=$DAEMON_UID
 Environment=XDG_RUNTIME_DIR=/run/user/$DAEMON_UID
 Environment=DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/$DAEMON_UID/bus
@@ -1004,7 +1145,7 @@ pair_and_start() {
       return
       ;;
   esac
-  saas_url="$(prompt_default "SaaS HTTP URL" "$saas_url")"
+  saas_url="$(prompt_default "Pair HTTP URL" "$saas_url")"
   saas_url="${saas_url%/}"
   validate_saas_url "$saas_url"
 
@@ -1038,12 +1179,18 @@ pair_and_start() {
 write_report() {
   local manifest="$1"
   local report_path="$STATE_DIR/install-report.json"
+  local manifest_cache asset_cache
+  manifest_cache="$(release_manifest_cache_path)"
+  asset_cache="$(asset_cache_dir)"
   if is_dry_run; then
     log "dry run: would write $report_path"
     return
   fi
   REPORT_PATH="$report_path" \
   MANIFEST_PATH="$manifest" \
+  RELEASE_MANIFEST_URL="${SELECTED_MANIFEST_URL:-}" \
+  RELEASE_MANIFEST_PATH="$manifest_cache" \
+  ASSET_CACHE_DIR="$asset_cache" \
   SCRIPT_VERSION="$SCRIPT_VERSION" \
   DAEMON_USER="$DAEMON_USER" \
   INSTALL_ROOT="$INSTALL_ROOT" \
@@ -1072,6 +1219,9 @@ report = {
     "workspace_root": os.environ["WORKSPACE_ROOT"],
     "packages_root": os.environ["PACKAGES_ROOT"],
     "toolchain_root": os.environ["TOOLCHAIN_ROOT"],
+    "release_manifest_url": os.environ["RELEASE_MANIFEST_URL"],
+    "release_manifest_path": os.environ["RELEASE_MANIFEST_PATH"],
+    "asset_cache_dir": os.environ["ASSET_CACHE_DIR"],
     "pair_status": os.environ["PAIR_STATUS"],
     "proxy_id": os.environ["PROXY_ID"],
     "service_started": os.environ["SERVICE_STARTED"],
@@ -1082,6 +1232,7 @@ report = {
             "version": asset["version"],
             "sha256": asset["sha256"],
             "target": asset["target"],
+            "install_mode": "installed" if asset["kind"] == "daemon_runtime" else "on_demand",
         }
         for asset in manifest["assets"]
     ],
@@ -1108,6 +1259,8 @@ state dir:        $STATE_DIR
 workspace root:   $WORKSPACE_ROOT
 pack projects:    $PACKAGES_ROOT
 toolchains:       $TOOLCHAIN_ROOT
+release manifest: $(release_manifest_cache_path)
+asset cache:      $(asset_cache_dir)
 pair status:      $PAIR_STATUS
 proxy_id:         ${PROXY_ID:-<not paired>}
 service started:  $SERVICE_STARTED
@@ -1136,11 +1289,16 @@ main() {
   # LAP_RELEASE_SOURCE fails fast with a clear message instead of producing a
   # broken manifest URL — release_base_url()'s own guard runs inside a "$(...)"
   # command substitution and so cannot abort the parent.
-  release_source_base >/dev/null ||
-    die "unknown LAP_RELEASE_SOURCE '${LAP_RELEASE_SOURCE:-}' (expected: github | gitee)"
+  validate_release_source ||
+    die "unknown LAP_RELEASE_SOURCE '${LAP_RELEASE_SOURCE:-}' (expected: saas | github | gitee)"
 
-  local selected_manifest_url manifest_path release_version default_saas_url
-  selected_manifest_url="$(manifest_url)"
+  local selected_manifest_url manifest_path release_version default_saas_url default_pair_url install_saas_url
+  if release_uses_saas_manifest; then
+    install_saas_url="$(prompt_default "SaaS HTTP URL" "$(default_install_saas_url)")"
+    install_saas_url="${install_saas_url%/}"
+    validate_saas_url "$install_saas_url"
+  fi
+  selected_manifest_url="$(manifest_url "${install_saas_url:-}")"
   log "release manifest: $selected_manifest_url"
 
   INSTALL_TMP_DIR="$(mktemp -d)"
@@ -1151,6 +1309,12 @@ main() {
 
   release_version="$(manifest_value "$manifest_path" "release.version")"
   default_saas_url="$(manifest_value "$manifest_path" "defaults.saas_url")"
+  if [[ -n "${install_saas_url:-}" ]]; then
+    default_saas_url="$install_saas_url"
+  fi
+  default_pair_url="$(default_pair_api_url "$default_saas_url")"
+  default_pair_url="${default_pair_url%/}"
+  validate_saas_url "$default_pair_url"
 
   local default_user default_home
   default_user="${SUDO_USER:-$(id -un)}"
@@ -1192,11 +1356,16 @@ workspace root:   $WORKSPACE_ROOT
 pack projects:    $PACKAGES_ROOT
 toolchains:       $TOOLCHAIN_ROOT
 default SaaS URL: $default_saas_url
+default pair URL: $default_pair_url
 
 Assets:
 EOF
   manifest_assets_tsv "$manifest_path" | while IFS=$'\t' read -r id kind version url _sha _archive target _strip; do
-    printf '  - %s (%s %s) -> %s\n' "$id" "$kind" "$version" "$(resolve_target "$target")"
+    mode="on demand"
+    if [[ "$kind" == "daemon_runtime" ]]; then
+      mode="install now"
+    fi
+    printf '  - %s (%s %s) -> %s [%s]\n' "$id" "$kind" "$version" "$(resolve_target "$target")" "$mode"
   done
   printf '\n'
 
@@ -1217,12 +1386,14 @@ EOF
   prepare_device_permissions
   prepare_sandbox_userns
   create_dirs
+  SELECTED_MANIFEST_URL="$selected_manifest_url"
+  write_release_manifest_cache "$manifest_path" "$selected_manifest_url" "$default_saas_url"
   install_assets "$manifest_path" "$INSTALL_TMP_DIR"
   provision_slint_preview
   prepare_user_manager
-  write_systemd_unit
-  write_pair_helper "$default_saas_url"
-  pair_and_start "$default_saas_url"
+  write_systemd_unit "$selected_manifest_url" "$default_saas_url"
+  write_pair_helper "$default_pair_url"
+  pair_and_start "$default_pair_url"
   write_report "$manifest_path"
   print_summary
 

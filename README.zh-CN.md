@@ -8,11 +8,12 @@ LAP v2 守护进程部署的发布资产与安装器。
 
 - 守护进程运行时安装在所选守护进程用户的家目录下
 - 状态与项目工作区位于 `/data/lap`
-- pack 项目位于 `/data/lap-packages`
+- 按需落地的 pack 项目缓存位于 `/data/lap-packages`
 - `lap.service` 由 systemd 托管
 
 当前 LAN 测试栈下，保持以下端点互不混淆：
 
+- SaaS 资产 HTTP URL：`http://192.168.1.108:18000`
 - 配对 HTTP URL：`http://192.168.1.108:38082`
 - 配对后返回的守护进程 WebSocket 端点：`ws://192.168.1.108:38081/v2/wss`
 - 供 `lap_agent` 使用的 MCP HTTP 端点：`http://192.168.1.108:38080/mcp`
@@ -21,19 +22,29 @@ LAP v2 守护进程部署的发布资产与安装器。
 
 ### 1. 安装守护进程（一条命令）
 
-从 LAN GitLab 包注册表安装（无需联网）。`LAP_RELEASE_PACKAGE_BASE` 让安装器从同一台 LAN 主机拉取清单 + 资产：
+默认情况下，安装器会询问 SaaS 资产 HTTP URL，从 SaaS 下载 release
+manifest，只安装 daemon runtime，并把 manifest 保存下来供后续按工程下载
+板级资产：
 
-```bash
-curl -fsSL "http://192.168.1.108:8090/api/v4/projects/5/packages/generic/lap-v2-release/latest/install.sh" \
-  | sudo env LAP_RELEASE_PACKAGE_BASE="http://192.168.1.108:8090/api/v4/projects/5/packages/generic/lap-v2-release" \
-             LAP_INSTALL_SLINT_PREVIEW=1 bash
+```text
+<SaaS asset URL>/v1/assets/lap-release/manifest.json
 ```
 
-若主机可联网，公网默认源（GitHub）无需覆盖：
+当前 LAN 栈示例：
 
 ```bash
 curl -fsSL https://github.com/omni-stack-gen/lap-v2-releases/releases/download/v0.1.2/install.sh \
-  | sudo env LAP_INSTALL_SLINT_PREVIEW=1 bash
+  | sudo env LAP_SAAS_URL="http://192.168.1.108:18000" \
+             LAP_PAIR_API_URL="http://192.168.1.108:38082" \
+             LAP_INSTALL_SLINT_PREVIEW=1 bash
+```
+
+如需强制使用旧的 GitHub release 布局下载 manifest 和资产，设置
+`LAP_RELEASE_SOURCE=github`：
+
+```bash
+curl -fsSL https://github.com/omni-stack-gen/lap-v2-releases/releases/download/v0.1.2/install.sh \
+  | sudo env LAP_RELEASE_SOURCE=github LAP_INSTALL_SLINT_PREVIEW=1 bash
 ```
 
 中国大陆（或 GitHub 慢/不通时），用 `LAP_RELEASE_SOURCE=gitee` 从 Gitee 镜像安装——安装器会改从 Gitee 拉取清单与资产，而非 GitHub：
@@ -41,6 +52,14 @@ curl -fsSL https://github.com/omni-stack-gen/lap-v2-releases/releases/download/v
 ```bash
 curl -fsSL https://gitee.com/lch8/lap-v2-releases/releases/download/v0.1.2/install.sh \
   | sudo env LAP_RELEASE_SOURCE=gitee LAP_INSTALL_SLINT_PREVIEW=1 bash
+```
+
+旧 LAN 包注册表仍可用 `LAP_RELEASE_PACKAGE_BASE` 覆盖 manifest + asset base URL：
+
+```bash
+curl -fsSL "http://192.168.1.108:8090/api/v4/projects/5/packages/generic/lap-v2-release/latest/install.sh" \
+  | sudo env LAP_RELEASE_PACKAGE_BASE="http://192.168.1.108:8090/api/v4/projects/5/packages/generic/lap-v2-release" \
+             LAP_INSTALL_SLINT_PREVIEW=1 bash
 ```
 
 安装器询问是否配对时，回答 **n** 跳过，稍后再配对。
@@ -88,6 +107,49 @@ curl -fsSL https://github.com/omni-stack-gen/lap-v2-releases/releases/download/v
 面向客户的发布项目应只暴露安装文档与发布产物。源码与原始构建输入留在私有/内部仓库中。
 
 可选的 Slint 预览支持（在带显示器的守护进程主机上实时渲染生成的 `.slint`）**默认关闭**；用 `LAP_INSTALL_SLINT_PREVIEW=1` 启用——见 [Slint 预览支持](docs/install/slint-preview.md)。
+
+## Toolchain 资产包结构
+
+每个 toolchain 压缩包只包含自己的目录和包内元数据，不携带全局
+`toolchains.toml`。在 SaaS 懒加载资产流程中，安装器不会预先下载所有
+`kind=toolchain` 资产；后续编译流程按需把某个 toolchain 落地到 LAP
+主机后，再基于同样的元数据刷新 `$TOOLCHAIN_ROOT/toolchains.toml`。
+
+示例压缩包结构：
+
+```text
+riscv64-linux-x86_64-20210512/
+|-- .omnistack-toolchain.toml
+|-- bin/
+|-- sysroot/
+`-- ...
+```
+
+`.omnistack-toolchain.toml` 示例：
+
+```toml
+profile = "F1"
+target = "riscv64gc-unknown-linux-gnu"
+bin = ["bin"]
+cc = "bin/riscv64-unknown-linux-gnu-gcc"
+ar = "bin/riscv64-unknown-linux-gnu-ar"
+linker = "bin/riscv64-unknown-linux-gnu-gcc"
+```
+
+一个 LAP 可以同时持有多个 SoC 的编译链；每个包提供一个不同的
+`profile`，本地 registry 由已经实际落地的 toolchain 合成。
+
+运维人员也可以主动下载或检查 daemon 使用的同一套资产。命令必须以
+daemon 用户执行，以免产生混合属主：
+
+```bash
+sudo -u <daemon-user> -H <install-root>/bin/lap assets ensure --soc F1
+sudo -u <daemon-user> -H <install-root>/bin/lap assets ensure --board FD_F1_R88R30_ADB_SPINOR
+sudo -u <daemon-user> -H <install-root>/bin/lap assets status --soc F1 --json
+```
+
+若安装时选择了非默认 state 目录，还需传入 `LAP_STATE_DIR=<state-dir>`，
+CLI 才能加载安装器持久化的资产配置。
 
 从这里开始：
 

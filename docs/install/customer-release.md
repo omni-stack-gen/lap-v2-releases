@@ -3,16 +3,44 @@
 This is the customer-facing distribution shape. Customers receive one install
 command and do not need access to the source/build repository.
 
-## Install v0.1.1
+## Install v0.1.2
 
 ```bash
-curl -fsSL https://github.com/omni-stack-gen/lap-v2-releases/releases/download/v0.1.1/install.sh | sudo bash
+curl -fsSL https://github.com/omni-stack-gen/lap-v2-releases/releases/download/v0.1.2/install.sh \
+  | sudo env LAP_SAAS_URL=http://<saas-host>:18000 bash
 ```
 
-The installer downloads `manifest.json` from the same Gitee Release asset set,
-verifies each asset hash declared by the manifest, installs the daemon runtime,
-installs pack projects, writes `lap.service`, and optionally pairs the daemon
-during the same flow.
+If the pair API is served from a different host or port, also set
+`LAP_PAIR_API_URL=http://<pair-host>:38082`; this only changes the default shown
+when pairing, not the asset manifest URL.
+
+The installer script comes from the GitHub release. By default it downloads
+`manifest.json` from the SaaS asset endpoint:
+
+```text
+http://<saas-host>:18000/v1/assets/lap-release/manifest.json
+```
+
+The SaaS manifest points back to SaaS download URLs for daemon runtime, pack
+projects, and toolchains. The installer installs the daemon runtime, caches the
+manifest path/URL in the LAP service environment, writes `lap.service`, and
+optionally pairs the daemon during the same flow. Pack projects and toolchains
+remain on-demand assets: runtime flows download the one required by the
+connected board or compile target instead of installing every board package up
+front.
+
+Operators may proactively materialize or inspect one asset with the installed
+CLI. These commands must run as the daemon user:
+
+```bash
+sudo -u <daemon-user> -H <install-root>/bin/lap assets ensure --soc F1
+sudo -u <daemon-user> -H <install-root>/bin/lap assets ensure --board <manifest.project>
+sudo -u <daemon-user> -H <install-root>/bin/lap assets status --soc F1 --json
+```
+
+The CLI reads the asset URL, roots, and expected UID persisted by the installer
+in `<state-dir>/release-source.env`. Set `LAP_STATE_DIR=<state-dir>` when a
+non-default state directory was selected.
 
 The installer also prepares the daemon user's systemd user manager by enabling
 linger and starting `user@<uid>.service`; `lap.service` receives the matching
@@ -55,11 +83,11 @@ service.
 ## Pin A Version
 
 ```bash
-curl -fsSL https://github.com/omni-stack-gen/lap-v2-releases/releases/download/v0.1.1/install.sh \
-  | sudo env LAP_DAEMON_VERSION=v0.1.1 bash
+curl -fsSL https://github.com/omni-stack-gen/lap-v2-releases/releases/download/v0.1.2/install.sh \
+  | sudo env LAP_RELEASE_SOURCE=github LAP_DAEMON_VERSION=v0.1.2 bash
 ```
 
-`LAP_DAEMON_VERSION` changes the manifest URL to:
+When `LAP_RELEASE_SOURCE=github`, `LAP_DAEMON_VERSION` changes the manifest URL to:
 
 ```text
 https://github.com/omni-stack-gen/lap-v2-releases/releases/download/<version>/manifest.json
@@ -86,8 +114,10 @@ curl -fsSL <mirror>/install.sh \
 Customers can see whatever is inside release assets after installation:
 
 - daemon runtime wrapper and Python venv under the selected install root
-- pack projects under `/data/lap-packages`
-- no toolchain bundle by default; compile-toolchain installation is deferred
+- cached release manifest under the selected state dir
+- pack projects under `/data/lap-packages` after the first project that needs them
+- toolchain bundles under the selected toolchain root after the first compile that needs them
+- generated `toolchains.toml` after toolchains have been materialized
 - generated systemd unit and install report
 
 They do not need the private source/build repository. If any scripts or build
@@ -96,7 +126,8 @@ or into a service-controlled path before shipping.
 
 ## Expected Release Assets
 
-Each customer release version should publish:
+Each customer release version should publish or serve through the SaaS asset
+manifest:
 
 ```text
 install.sh
@@ -104,6 +135,7 @@ manifest.json
 SHA256SUMS
 lap-daemon-runtime.tar.gz
 lap-pack-projects.tar.gz
+lap-toolchains.tar.gz
 ```
 
 `manifest.json` is the installer's source of truth for asset URLs and hashes.

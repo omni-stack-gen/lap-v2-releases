@@ -12,6 +12,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 BUILDER = ROOT / "scripts" / "build_release.py"
 VALIDATOR = ROOT / "scripts" / "validate_manifest.py"
+RUNTIME_PREPARER = ROOT / "scripts" / "prepare_v2_runtime_asset.sh"
 
 
 def _write(path: Path, content: str = "x") -> None:
@@ -83,6 +84,11 @@ def _config(path: Path, runtime: Path, pack: Path, toolchains: Path) -> Path:
 
 
 class BuildReleaseTests(unittest.TestCase):
+    def test_runtime_preparer_validates_lazy_asset_modules(self) -> None:
+        script = RUNTIME_PREPARER.read_text(encoding="utf-8")
+        self.assertIn("from lap.assets.manager import AssetManager", script)
+        self.assertIn("from lap_proto.tool_schemas import AssetEnsureInput", script)
+
     def test_build_release_writes_manifest_and_tarballs(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             tmp_path = Path(tmp)

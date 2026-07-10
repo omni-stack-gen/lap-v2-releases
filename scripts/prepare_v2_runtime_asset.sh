@@ -52,7 +52,9 @@ chmod 0755 "$LAP_RUNTIME_OUT/bin/lap"
 "$LAP_RUNTIME_OUT/.venv/bin/python" - <<'PY'
 from pathlib import Path
 import lap.daemon
+from lap.assets.manager import AssetManager
 import lap_proto
+from lap_proto.tool_schemas import AssetEnsureInput, AssetEnsureOutput
 import sysconfig
 
 site_packages = Path(sysconfig.get_paths()["purelib"])
@@ -62,6 +64,8 @@ if editable_lap_files:
     raise SystemExit(f"editable LAP package references found in runtime: {paths}")
 
 print(f"lap_proto import ok: {lap_proto.__file__}")
+print(f"asset manager import ok: {AssetManager.__module__}")
+print(f"asset protocol import ok: {AssetEnsureInput.__name__}/{AssetEnsureOutput.__name__}")
 print("lap.daemon import ok")
 PY
 printf 'runtime asset ready: %s\n' "$LAP_RUNTIME_OUT"

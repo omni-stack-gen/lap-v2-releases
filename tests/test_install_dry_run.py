@@ -1,9 +1,15 @@
 from __future__ import annotations
 
+import hashlib
+import json
 import os
 import subprocess
 import tempfile
+import threading
+import tarfile
 import unittest
+from functools import partial
+from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 
@@ -13,6 +19,58 @@ EXAMPLE = ROOT / "examples" / "manifest.example.json"
 
 
 class InstallDryRunTests(unittest.TestCase):
+    def test_installer_fetches_default_manifest_from_saas_url(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            manifest_dir = tmp_path / "v1" / "assets" / "lap-release"
+            manifest_dir.mkdir(parents=True)
+            (manifest_dir / "manifest.json").write_text(
+                EXAMPLE.read_text(encoding="utf-8"),
+                encoding="utf-8",
+            )
+
+            class QuietHandler(SimpleHTTPRequestHandler):
+                def log_message(self, _format: str, *_args: object) -> None:
+                    return
+
+            server = ThreadingHTTPServer(
+                ("127.0.0.1", 0),
+                partial(QuietHandler, directory=tmp),
+            )
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+            try:
+                saas_url = f"http://127.0.0.1:{server.server_port}"
+                env = {
+                    **os.environ,
+                    "LAP_INSTALL_DRY_RUN": "1",
+                    "LAP_SAAS_URL": saas_url,
+                    "SUDO_USER": os.environ.get("USER", "laptest"),
+                }
+                # Prompts: SaaS URL, user, install root, state dir, workspace,
+                # packages, toolchains, proceed, pair now.
+                answers = "\n\n\n\n\n\n\ny\nn\n"
+                result = subprocess.run(
+                    ["bash", str(INSTALLER)],
+                    input=answers,
+                    capture_output=True,
+                    text=True,
+                    env=env,
+                    check=False,
+                    timeout=20,
+                )
+            finally:
+                server.shutdown()
+                server.server_close()
+                thread.join(timeout=5)
+
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        self.assertIn(
+            f"release manifest: {saas_url}/v1/assets/lap-release/manifest.json",
+            result.stdout,
+        )
+        self.assertIn("DRY RUN complete", result.stdout)
+
     def test_installer_dry_run_accepts_defaults_and_skips_pair(self) -> None:
         env = {
             **os.environ,
@@ -39,6 +97,10 @@ class InstallDryRunTests(unittest.TestCase):
         self.assertIn("dry run: would prepare bwrap user namespace sysctls", result.stdout)
         self.assertIn("dry run: would configure serial/USB permissions", result.stdout)
         self.assertIn("dry run: would enable linger", result.stdout)
+        self.assertIn("dry run: would write /home/", result.stdout)
+        self.assertIn("lap-pack-projects (pack_projects v0.1.1-example) ->", result.stdout)
+        self.assertIn("[on demand]", result.stdout)
+        self.assertIn("lazy asset lap-toolchains", result.stdout)
 
     def test_installer_slint_preview_opt_in(self) -> None:
         env = {
@@ -130,14 +192,57 @@ class InstallDryRunTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
         self.assertEqual(
             result.stdout.strip(),
-            "https://github.com/omni-stack-gen/lap-v2-releases/releases/download/v0.1.2/manifest.json",
+            "http://127.0.0.1:18000/v1/assets/lap-release/manifest.json",
         )
+
+    def test_installer_uses_configured_saas_url_for_default_manifest(self) -> None:
+        env = {
+            **os.environ,
+            "LAP_INSTALL_DRY_RUN": "1",
+            "LAP_SAAS_URL": "http://192.168.1.108:18000/",
+            "SUDO_USER": os.environ.get("USER", "laptest"),
+        }
+        result = subprocess.run(
+            ["bash", "-c", f"source {INSTALLER}; manifest_url"],
+            capture_output=True,
+            text=True,
+            env=env,
+            check=False,
+            timeout=20,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        self.assertEqual(
+            result.stdout.strip(),
+            "http://192.168.1.108:18000/v1/assets/lap-release/manifest.json",
+        )
+
+    def test_installer_pair_default_can_be_separate_from_asset_url(self) -> None:
+        env = {
+            **os.environ,
+            "LAP_INSTALL_DRY_RUN": "1",
+            "LAP_RELEASE_MANIFEST_URL": f"file://{EXAMPLE}",
+            "LAP_PAIR_API_URL": "http://192.168.1.108:38082/",
+            "SUDO_USER": os.environ.get("USER", "laptest"),
+        }
+        answers = "\n\n\n\n\n\ny\nn\n"
+        result = subprocess.run(
+            ["bash", str(INSTALLER)],
+            input=answers,
+            capture_output=True,
+            text=True,
+            env=env,
+            check=False,
+            timeout=20,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        self.assertIn("default pair URL: http://192.168.1.108:38082", result.stdout)
 
     def test_installer_can_pin_release_tag(self) -> None:
         env = {
             **os.environ,
             "LAP_INSTALL_DRY_RUN": "1",
             "LAP_DAEMON_VERSION": "v1.2.3",
+            "LAP_RELEASE_SOURCE": "github",
             "SUDO_USER": os.environ.get("USER", "laptest"),
         }
         result = subprocess.run(
@@ -394,12 +499,105 @@ class InstallDryRunTests(unittest.TestCase):
         )
         self.assertNotIn("sudo -u dpower LAP_STATE_DIR=", result.stdout)
 
-    def test_systemd_unit_allows_configured_pack_root_extra_binds(self) -> None:
+    def test_systemd_unit_allows_configured_asset_root_extra_binds(self) -> None:
         installer_text = INSTALLER.read_text(encoding="utf-8")
         self.assertIn(
-            "Environment=LAP_BASH_ALLOWED_EXTRA_BIND_PREFIXES=$PACKAGES_ROOT",
+            "Environment=LAP_BASH_ALLOWED_EXTRA_BIND_PREFIXES=$PACKAGES_ROOT,$TOOLCHAIN_ROOT",
             installer_text,
         )
+        self.assertIn("Environment=LAP_RELEASE_MANIFEST_URL=$release_manifest_url", installer_text)
+        self.assertIn("Environment=LAP_RELEASE_MANIFEST_PATH=$release_manifest_path", installer_text)
+        self.assertIn("Environment=LAP_ASSET_CACHE_DIR=$asset_cache", installer_text)
+
+    def test_installer_persists_runtime_asset_roots_and_owns_no_registry(self) -> None:
+        installer_text = INSTALLER.read_text(encoding="utf-8")
+        self.assertIn("LAP_PACKAGES_ROOT=$PACKAGES_ROOT", installer_text)
+        self.assertIn("LAP_TOOLCHAINS_ROOT=$TOOLCHAIN_ROOT", installer_text)
+        self.assertIn("LAP_EXPECTED_UID=$DAEMON_UID", installer_text)
+        self.assertNotIn("write_toolchains_registry", installer_text)
+
+    def test_daemon_runtime_upgrade_preserves_lazy_asset_roots(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            install_root = root / "lap"
+            old_lap = install_root / "bin" / "lap"
+            old_lap.parent.mkdir(parents=True)
+            old_lap.write_text("old runtime\n", encoding="utf-8")
+            old_lap.chmod(0o755)
+            (install_root / ".venv").mkdir()
+            (install_root / ".venv" / "old-only").write_text("old", encoding="utf-8")
+
+            packages = root / "packages"
+            pack_marker = packages / "Pack_FD_F1" / "pack.sh"
+            pack_marker.parent.mkdir(parents=True)
+            pack_marker.write_text("pack", encoding="utf-8")
+            toolchains = root / "toolchains"
+            toolchains.mkdir()
+            registry = toolchains / "toolchains.toml"
+            registry.write_text("[toolchains.F1]\nroot='keep'\n", encoding="utf-8")
+
+            runtime_source = root / "runtime-source"
+            new_lap = runtime_source / "bin" / "lap"
+            new_lap.parent.mkdir(parents=True)
+            new_lap.write_text("new runtime\n", encoding="utf-8")
+            new_lap.chmod(0o755)
+            (runtime_source / ".venv").mkdir()
+            archive = root / "runtime.tar.gz"
+            with tarfile.open(archive, "w:gz") as tf:
+                for path in sorted(runtime_source.rglob("*")):
+                    tf.add(path, arcname=path.relative_to(runtime_source))
+            digest = hashlib.sha256(archive.read_bytes()).hexdigest()
+            manifest = root / "manifest.json"
+            manifest.write_text(
+                json.dumps(
+                    {
+                        "assets": [
+                            {
+                                "id": "lap-daemon-runtime",
+                                "kind": "daemon_runtime",
+                                "version": "v-next",
+                                "url": archive.as_uri(),
+                                "sha256": digest,
+                                "archive": "tar.gz",
+                                "target": "install_root",
+                                "strip_components": 0,
+                            }
+                        ]
+                    }
+                ),
+                encoding="utf-8",
+            )
+            scratch = root / "scratch"
+            scratch.mkdir()
+            user = os.environ.get("USER", "laptest")
+            script = f"""
+set -Eeuo pipefail
+source {INSTALLER}
+chown() {{ :; }}
+DAEMON_USER={user}
+DAEMON_GROUP={user}
+INSTALL_ROOT={install_root}
+PACKAGES_ROOT={packages}
+TOOLCHAIN_ROOT={toolchains}
+preflight_paths
+install_assets {manifest} {scratch}
+"""
+            result = subprocess.run(
+                ["bash", "-c", script],
+                capture_output=True,
+                text=True,
+                check=False,
+                timeout=20,
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+            self.assertEqual(old_lap.read_text(encoding="utf-8"), "new runtime\n")
+            self.assertFalse((install_root / ".venv" / "old-only").exists())
+            self.assertEqual(pack_marker.read_text(encoding="utf-8"), "pack")
+            self.assertEqual(
+                registry.read_text(encoding="utf-8"),
+                "[toolchains.F1]\nroot='keep'\n",
+            )
 
     def test_installer_configures_lap_device_permissions(self) -> None:
         installer_text = INSTALLER.read_text(encoding="utf-8")
