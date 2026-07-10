@@ -87,7 +87,9 @@ class BuildReleaseTests(unittest.TestCase):
     def test_runtime_preparer_validates_lazy_asset_modules(self) -> None:
         script = RUNTIME_PREPARER.read_text(encoding="utf-8")
         self.assertIn("from lap.assets.manager import AssetManager", script)
+        self.assertIn("from lap.cli import main as lap_cli", script)
         self.assertIn("from lap_proto.tool_schemas import AssetEnsureInput", script)
+        self.assertIn('{"ensure", "status"}', script)
 
     def test_build_release_writes_manifest_and_tarballs(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

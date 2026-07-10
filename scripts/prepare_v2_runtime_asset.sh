@@ -53,6 +53,7 @@ chmod 0755 "$LAP_RUNTIME_OUT/bin/lap"
 from pathlib import Path
 import lap.daemon
 from lap.assets.manager import AssetManager
+from lap.cli import main as lap_cli
 import lap_proto
 from lap_proto.tool_schemas import AssetEnsureInput, AssetEnsureOutput
 import sysconfig
@@ -63,9 +64,17 @@ if editable_lap_files:
     paths = ", ".join(str(path) for path in editable_lap_files)
     raise SystemExit(f"editable LAP package references found in runtime: {paths}")
 
+assets_group = lap_cli.commands.get("assets")
+asset_commands = set(getattr(assets_group, "commands", {}))
+required_asset_commands = {"ensure", "status"}
+if not required_asset_commands.issubset(asset_commands):
+    missing = sorted(required_asset_commands - asset_commands)
+    raise SystemExit(f"asset CLI commands missing from runtime: {missing}")
+
 print(f"lap_proto import ok: {lap_proto.__file__}")
 print(f"asset manager import ok: {AssetManager.__module__}")
 print(f"asset protocol import ok: {AssetEnsureInput.__name__}/{AssetEnsureOutput.__name__}")
+print(f"asset CLI commands ok: {sorted(required_asset_commands)}")
 print("lap.daemon import ok")
 PY
 printf 'runtime asset ready: %s\n' "$LAP_RUNTIME_OUT"

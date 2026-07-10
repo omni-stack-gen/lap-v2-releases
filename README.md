@@ -11,6 +11,7 @@ host into the expected LAP v2 runtime shape:
 - daemon runtime installed under the selected daemon user's home
 - state and project workspace under `/data/lap`
 - on-demand pack project cache under `/data/lap-packages`
+- on-demand SoC toolchains under the selected toolchain root
 - `lap.service` managed by systemd
 
 For the current LAN test stack, keep these endpoints distinct:
@@ -26,7 +27,7 @@ For the current LAN test stack, keep these endpoints distinct:
 
 By default the installer asks for the SaaS asset HTTP URL, downloads the
 release manifest from SaaS, installs only the daemon runtime, and saves the
-manifest for later on-demand board assets:
+reachable SaaS URL and local roots for later on-demand board and SoC assets:
 
 ```text
 <SaaS asset URL>/v1/assets/lap-release/manifest.json
@@ -41,29 +42,35 @@ curl -fsSL https://github.com/omni-stack-gen/lap-v2-releases/releases/download/v
              LAP_INSTALL_SLINT_PREVIEW=1 bash
 ```
 
-To force the old public GitHub release layout for both manifest and assets, set
-`LAP_RELEASE_SOURCE=github`:
+To fetch the daemon bootstrap manifest and runtime from the public GitHub
+release, set `LAP_RELEASE_SOURCE=github`. Managed Pack and toolchain requests
+still use the SaaS URL persisted by the installer:
 
 ```bash
 curl -fsSL https://github.com/omni-stack-gen/lap-v2-releases/releases/download/v0.1.2/install.sh \
-  | sudo env LAP_RELEASE_SOURCE=github LAP_INSTALL_SLINT_PREVIEW=1 bash
+  | sudo env LAP_RELEASE_SOURCE=github \
+             LAP_SAAS_URL="http://192.168.1.108:18000" \
+             LAP_INSTALL_SLINT_PREVIEW=1 bash
 ```
 
-In China (or when GitHub is slow/blocked), install from the Gitee mirror with
-`LAP_RELEASE_SOURCE=gitee` — the installer then pulls the manifest and assets
-from Gitee instead of GitHub:
+In China (or when GitHub is slow/blocked), fetch the daemon bootstrap from the
+Gitee mirror with `LAP_RELEASE_SOURCE=gitee`. Runtime Pack and toolchain bytes
+still come through the SaaS asset facade:
 
 ```bash
 curl -fsSL https://gitee.com/lch8/lap-v2-releases/releases/download/v0.1.2/install.sh \
-  | sudo env LAP_RELEASE_SOURCE=gitee LAP_INSTALL_SLINT_PREVIEW=1 bash
+  | sudo env LAP_RELEASE_SOURCE=gitee \
+             LAP_SAAS_URL="http://192.168.1.108:18000" \
+             LAP_INSTALL_SLINT_PREVIEW=1 bash
 ```
 
 For legacy LAN package registries, `LAP_RELEASE_PACKAGE_BASE` still overrides
-the manifest + asset base URL:
+the daemon bootstrap manifest and archive base URL:
 
 ```bash
 curl -fsSL "http://192.168.1.108:8090/api/v4/projects/5/packages/generic/lap-v2-release/latest/install.sh" \
   | sudo env LAP_RELEASE_PACKAGE_BASE="http://192.168.1.108:8090/api/v4/projects/5/packages/generic/lap-v2-release" \
+             LAP_SAAS_URL="http://192.168.1.108:18000" \
              LAP_INSTALL_SLINT_PREVIEW=1 bash
 ```
 
@@ -157,6 +164,38 @@ One LAP host can hold multiple SoC toolchains at the same time; each archive
 contributes a distinct `profile`, and the local registry is built from the
 toolchains that have actually been materialized.
 
+## Managed Runtime Assets
+
+A normal install creates the cache, Pack, and toolchain roots but leaves them
+empty. The installer downloads only `kind=daemon_runtime`; a live operation or
+an operator command later asks the SaaS manifest for exactly one selector:
+
+| Selector | Managed asset | Local compatibility output |
+|---|---|---|
+| `--soc F1` | F1 cross-toolchain | `<toolchain-root>/toolchains.toml` plus an immutable version directory |
+| `--board FD_F1_...` | `Pack_FD_F1_...` project | `<packages-root>/Pack_FD_F1_...` pointing at an immutable version |
+
+Each Pack archive is self-contained below its own `Pack_<project>` directory,
+including `pack.sh` and its dependencies. There is no shared top-level
+`pack.sh` or `.venv` contract.
+
+The installer persists these values in `<state-dir>/release-source.env` and
+also writes them into `lap.service`:
+
+```text
+LAP_RELEASE_SAAS_URL=<reachable SaaS base URL>
+LAP_RELEASE_MANIFEST_URL=<SaaS base URL>/v1/assets/lap-release/manifest.json
+LAP_ASSET_CACHE_DIR=<state-dir>/assets
+LAP_PACKAGES_ROOT=<packages-root>
+LAP_TOOLCHAINS_ROOT=<toolchain-root>
+LAP_EXPECTED_UID=<daemon uid>
+```
+
+The daemon user owns all three roots. The generated sandbox allowlist includes
+only the configured Pack and toolchain roots required by compile/package
+tasks. Reinstalling the daemon runtime preserves installed assets and unrelated
+toolchain profiles.
+
 Operators can prefetch or inspect the same managed assets as the daemon. Run
 the command as the daemon user so installed files keep one owner:
 
@@ -168,6 +207,16 @@ sudo -u <daemon-user> -H <install-root>/bin/lap assets status --soc F1 --json
 
 With a non-default state directory, also pass `LAP_STATE_DIR=<state-dir>` so
 the CLI can load the installer-persisted asset settings.
+
+`ensure` checks the current SaaS descriptor every time, then reports the exact
+identity, version, SHA256, immutable path, and whether the local bytes were
+reused. `status` is local-only and reports `ready`, `missing`, or `invalid`.
+Neither command contacts PocketBase directly. Run mutating commands as the
+daemon user; another identity is rejected before asset roots are created.
+
+Manifest, download, digest, extraction, activation, or readiness failure stops
+that operation. A previous valid version remains on disk but is not used as a
+fallback; correct the cause and start the command or web action again.
 
 Start here:
 

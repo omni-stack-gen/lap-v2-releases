@@ -216,6 +216,18 @@ saas_release_manifest_url() {
   printf '%s/v1/assets/lap-release/manifest.json' "$saas_url"
 }
 
+saas_base_url_from_manifest_url() {
+  local url="$1"
+  url="${url%%\#*}"
+  url="${url%%\?*}"
+  case "$url" in
+    http://*/v1/assets/lap-release/manifest.json|https://*/v1/assets/lap-release/manifest.json)
+      printf '%s' "${url%/v1/assets/lap-release/manifest.json}"
+      ;;
+    *) return 1 ;;
+  esac
+}
+
 manifest_url() {
   if [[ -n "${LAP_RELEASE_MANIFEST_URL:-}" ]]; then
     printf '%s' "$LAP_RELEASE_MANIFEST_URL"
@@ -300,6 +312,9 @@ validate_install_path() {
 
 validate_saas_url() {
   local url="$1"
+  case "$url" in
+    *[$'\t\r\n ']*) die "SaaS URL must not contain whitespace" ;;
+  esac
   case "$url" in
     http://*|https://*) ;;
     ws://*|wss://*)
@@ -728,7 +743,7 @@ asset_cache_dir() {
 
 write_release_manifest_cache() {
   local manifest="$1"
-  local manifest_url="$2"
+  local runtime_asset_manifest_url="$2"
   local saas_url="$3"
   local manifest_cache source_env cache_dir
   manifest_cache="$(release_manifest_cache_path)"
@@ -742,7 +757,7 @@ write_release_manifest_cache() {
   mkdir -p "$cache_dir"
   cp -- "$manifest" "$manifest_cache"
   cat > "$source_env" <<EOF
-LAP_RELEASE_MANIFEST_URL=$manifest_url
+LAP_RELEASE_MANIFEST_URL=$runtime_asset_manifest_url
 LAP_RELEASE_MANIFEST_PATH=$manifest_cache
 LAP_RELEASE_SAAS_URL=$saas_url
 LAP_ASSET_CACHE_DIR=$cache_dir
@@ -902,7 +917,7 @@ install_assets() {
 }
 
 write_systemd_unit() {
-  local release_manifest_url="$1"
+  local runtime_asset_manifest_url="$1"
   local default_saas_url="$2"
   local unit="/etc/systemd/system/lap.service"
   local lap_bin="$INSTALL_ROOT/bin/lap"
@@ -940,7 +955,7 @@ Environment=LAP_WORKSPACE_ROOT=$WORKSPACE_ROOT
 Environment=LAP_PACKAGES_ROOT=$PACKAGES_ROOT
 Environment=LAP_BASH_ALLOWED_EXTRA_BIND_PREFIXES=$PACKAGES_ROOT,$TOOLCHAIN_ROOT
 Environment=LAP_TOOLCHAINS_ROOT=$TOOLCHAIN_ROOT
-Environment=LAP_RELEASE_MANIFEST_URL=$release_manifest_url
+Environment=LAP_RELEASE_MANIFEST_URL=$runtime_asset_manifest_url
 Environment=LAP_RELEASE_MANIFEST_PATH=$release_manifest_path
 Environment=LAP_RELEASE_SAAS_URL=$default_saas_url
 Environment=LAP_ASSET_CACHE_DIR=$asset_cache
@@ -1189,6 +1204,7 @@ write_report() {
   REPORT_PATH="$report_path" \
   MANIFEST_PATH="$manifest" \
   RELEASE_MANIFEST_URL="${SELECTED_MANIFEST_URL:-}" \
+  ASSET_MANIFEST_URL="${RUNTIME_ASSET_MANIFEST_URL:-}" \
   RELEASE_MANIFEST_PATH="$manifest_cache" \
   ASSET_CACHE_DIR="$asset_cache" \
   SCRIPT_VERSION="$SCRIPT_VERSION" \
@@ -1220,6 +1236,7 @@ report = {
     "packages_root": os.environ["PACKAGES_ROOT"],
     "toolchain_root": os.environ["TOOLCHAIN_ROOT"],
     "release_manifest_url": os.environ["RELEASE_MANIFEST_URL"],
+    "asset_manifest_url": os.environ["ASSET_MANIFEST_URL"],
     "release_manifest_path": os.environ["RELEASE_MANIFEST_PATH"],
     "asset_cache_dir": os.environ["ASSET_CACHE_DIR"],
     "pair_status": os.environ["PAIR_STATUS"],
@@ -1260,6 +1277,7 @@ workspace root:   $WORKSPACE_ROOT
 pack projects:    $PACKAGES_ROOT
 toolchains:       $TOOLCHAIN_ROOT
 release manifest: $(release_manifest_cache_path)
+asset manifest:   ${RUNTIME_ASSET_MANIFEST_URL:-<not configured>}
 asset cache:      $(asset_cache_dir)
 pair status:      $PAIR_STATUS
 proxy_id:         ${PROXY_ID:-<not paired>}
@@ -1292,7 +1310,8 @@ main() {
   validate_release_source ||
     die "unknown LAP_RELEASE_SOURCE '${LAP_RELEASE_SOURCE:-}' (expected: saas | github | gitee)"
 
-  local selected_manifest_url manifest_path release_version default_saas_url default_pair_url install_saas_url
+  local selected_manifest_url runtime_asset_manifest_url manifest_path release_version
+  local default_saas_url default_pair_url install_saas_url manifest_saas_url
   if release_uses_saas_manifest; then
     install_saas_url="$(prompt_default "SaaS HTTP URL" "$(default_install_saas_url)")"
     install_saas_url="${install_saas_url%/}"
@@ -1311,7 +1330,14 @@ main() {
   default_saas_url="$(manifest_value "$manifest_path" "defaults.saas_url")"
   if [[ -n "${install_saas_url:-}" ]]; then
     default_saas_url="$install_saas_url"
+  elif [[ -n "${LAP_SAAS_URL:-}" ]]; then
+    default_saas_url="${LAP_SAAS_URL%/}"
+  elif manifest_saas_url="$(saas_base_url_from_manifest_url "$selected_manifest_url")"; then
+    default_saas_url="$manifest_saas_url"
   fi
+  validate_saas_url "$default_saas_url"
+  runtime_asset_manifest_url="$(saas_release_manifest_url "$default_saas_url")"
+  log "runtime asset manifest: $runtime_asset_manifest_url"
   default_pair_url="$(default_pair_api_url "$default_saas_url")"
   default_pair_url="${default_pair_url%/}"
   validate_saas_url "$default_pair_url"
@@ -1387,11 +1413,12 @@ EOF
   prepare_sandbox_userns
   create_dirs
   SELECTED_MANIFEST_URL="$selected_manifest_url"
-  write_release_manifest_cache "$manifest_path" "$selected_manifest_url" "$default_saas_url"
+  RUNTIME_ASSET_MANIFEST_URL="$runtime_asset_manifest_url"
+  write_release_manifest_cache "$manifest_path" "$runtime_asset_manifest_url" "$default_saas_url"
   install_assets "$manifest_path" "$INSTALL_TMP_DIR"
   provision_slint_preview
   prepare_user_manager
-  write_systemd_unit "$selected_manifest_url" "$default_saas_url"
+  write_systemd_unit "$runtime_asset_manifest_url" "$default_saas_url"
   write_pair_helper "$default_pair_url"
   pair_and_start "$default_pair_url"
   write_report "$manifest_path"

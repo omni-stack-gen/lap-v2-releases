@@ -19,6 +19,118 @@ EXAMPLE = ROOT / "examples" / "manifest.example.json"
 
 
 class InstallDryRunTests(unittest.TestCase):
+    def test_fresh_install_materializes_only_daemon_runtime_and_empty_asset_roots(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            runtime_source = root / "runtime-source"
+            runtime_bin = runtime_source / "bin" / "lap"
+            runtime_bin.parent.mkdir(parents=True)
+            runtime_bin.write_text("#!/bin/sh\n", encoding="utf-8")
+            runtime_bin.chmod(0o755)
+            (runtime_source / ".venv").mkdir()
+
+            runtime_archive = root / "runtime.tar.gz"
+            with tarfile.open(runtime_archive, "w:gz") as tf:
+                for path in sorted(runtime_source.rglob("*")):
+                    tf.add(path, arcname=path.relative_to(runtime_source))
+            runtime_digest = hashlib.sha256(runtime_archive.read_bytes()).hexdigest()
+
+            manifest = root / "manifest.json"
+            manifest.write_text(
+                json.dumps(
+                    {
+                        "assets": [
+                            {
+                                "id": "lap-daemon-runtime",
+                                "kind": "daemon_runtime",
+                                "version": "v-next",
+                                "url": runtime_archive.as_uri(),
+                                "sha256": runtime_digest,
+                                "archive": "tar.gz",
+                                "target": "install_root",
+                                "strip_components": 0,
+                            },
+                            {
+                                "id": "lap-pack-projects",
+                                "kind": "pack_projects",
+                                "version": "v-pack",
+                                "url": "https://example.invalid/never-download-pack.tar.gz",
+                                "sha256": "1" * 64,
+                                "archive": "tar.gz",
+                                "target": "packages_root",
+                                "strip_components": 0,
+                            },
+                            {
+                                "id": "lap-toolchains",
+                                "kind": "toolchain",
+                                "version": "v-toolchain",
+                                "url": "https://example.invalid/never-download-toolchain.tar.gz",
+                                "sha256": "2" * 64,
+                                "archive": "tar.gz",
+                                "target": "toolchain_root",
+                                "strip_components": 0,
+                            },
+                        ]
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            install_root = root / "lap"
+            state_dir = root / "state"
+            workspace_root = root / "workspace"
+            packages_root = root / "packages"
+            toolchains_root = root / "toolchains"
+            scratch = root / "scratch"
+            scratch.mkdir()
+            daemon_user = os.environ.get("USER", "laptest")
+            saas_url = "http://192.168.252.152:18000"
+            manifest_url = f"{saas_url}/v1/assets/lap-release/manifest.json"
+            script = f"""
+set -Eeuo pipefail
+source {INSTALLER}
+chown() {{ :; }}
+DAEMON_USER={daemon_user}
+DAEMON_GROUP={daemon_user}
+DAEMON_UID={os.geteuid()}
+INSTALL_ROOT={install_root}
+STATE_DIR={state_dir}
+WORKSPACE_ROOT={workspace_root}
+PACKAGES_ROOT={packages_root}
+TOOLCHAIN_ROOT={toolchains_root}
+create_dirs
+write_release_manifest_cache {manifest} {manifest_url} {saas_url}
+install_assets {manifest} {scratch}
+"""
+            result = subprocess.run(
+                ["bash", "-c", script],
+                capture_output=True,
+                text=True,
+                check=False,
+                timeout=20,
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+            self.assertTrue((install_root / "bin" / "lap").is_file())
+            self.assertEqual(list(packages_root.iterdir()), [])
+            self.assertEqual(list(toolchains_root.iterdir()), [])
+            self.assertEqual(list((state_dir / "assets").iterdir()), [])
+            self.assertEqual(packages_root.stat().st_uid, os.geteuid())
+            self.assertEqual(toolchains_root.stat().st_uid, os.geteuid())
+            self.assertEqual((state_dir / "assets").stat().st_uid, os.geteuid())
+            source_env = (state_dir / "release-source.env").read_text(encoding="utf-8")
+            self.assertIn(f"LAP_RELEASE_MANIFEST_URL={manifest_url}\n", source_env)
+            self.assertIn(f"LAP_RELEASE_SAAS_URL={saas_url}\n", source_env)
+            self.assertIn(f"LAP_ASSET_CACHE_DIR={state_dir / 'assets'}\n", source_env)
+            self.assertIn(f"LAP_PACKAGES_ROOT={packages_root}\n", source_env)
+            self.assertIn(f"LAP_TOOLCHAINS_ROOT={toolchains_root}\n", source_env)
+            self.assertIn(f"LAP_EXPECTED_UID={os.geteuid()}\n", source_env)
+            self.assertIn("lap-pack-projects", result.stdout)
+            self.assertIn("lap-toolchains", result.stdout)
+            self.assertNotIn("never-download", result.stdout)
+
     def test_installer_fetches_default_manifest_from_saas_url(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             tmp_path = Path(tmp)
@@ -59,6 +171,23 @@ class InstallDryRunTests(unittest.TestCase):
                     check=False,
                     timeout=20,
                 )
+                explicit_env = {
+                    **os.environ,
+                    "LAP_INSTALL_DRY_RUN": "1",
+                    "LAP_RELEASE_MANIFEST_URL": (
+                        f"{saas_url}/v1/assets/lap-release/manifest.json"
+                    ),
+                    "SUDO_USER": os.environ.get("USER", "laptest"),
+                }
+                explicit_result = subprocess.run(
+                    ["bash", str(INSTALLER)],
+                    input=answers,
+                    capture_output=True,
+                    text=True,
+                    env=explicit_env,
+                    check=False,
+                    timeout=20,
+                )
             finally:
                 server.shutdown()
                 server.server_close()
@@ -70,6 +199,17 @@ class InstallDryRunTests(unittest.TestCase):
             result.stdout,
         )
         self.assertIn("DRY RUN complete", result.stdout)
+        self.assertEqual(
+            explicit_result.returncode,
+            0,
+            explicit_result.stderr + explicit_result.stdout,
+        )
+        self.assertIn(f"default SaaS URL: {saas_url}", explicit_result.stdout)
+        self.assertIn(
+            "runtime asset manifest: "
+            f"{saas_url}/v1/assets/lap-release/manifest.json",
+            explicit_result.stdout,
+        )
 
     def test_installer_dry_run_accepts_defaults_and_skips_pair(self) -> None:
         env = {
@@ -101,6 +241,38 @@ class InstallDryRunTests(unittest.TestCase):
         self.assertIn("lap-pack-projects (pack_projects v0.1.1-example) ->", result.stdout)
         self.assertIn("[on demand]", result.stdout)
         self.assertIn("lazy asset lap-toolchains", result.stdout)
+
+    def test_installer_separates_release_bootstrap_from_runtime_asset_manifest(
+        self,
+    ) -> None:
+        saas_url = "http://192.168.252.152:18000"
+        env = {
+            **os.environ,
+            "LAP_INSTALL_DRY_RUN": "1",
+            "LAP_RELEASE_MANIFEST_URL": f"file://{EXAMPLE}",
+            "LAP_SAAS_URL": saas_url,
+            "SUDO_USER": os.environ.get("USER", "laptest"),
+        }
+        answers = "\n\n\n\n\n\ny\nn\n"
+
+        result = subprocess.run(
+            ["bash", str(INSTALLER)],
+            input=answers,
+            capture_output=True,
+            text=True,
+            env=env,
+            check=False,
+            timeout=20,
+        )
+
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        self.assertIn(f"release manifest: file://{EXAMPLE}", result.stdout)
+        self.assertIn(
+            "runtime asset manifest: "
+            f"{saas_url}/v1/assets/lap-release/manifest.json",
+            result.stdout,
+        )
+        self.assertIn(f"default SaaS URL: {saas_url}", result.stdout)
 
     def test_installer_slint_preview_opt_in(self) -> None:
         env = {
@@ -433,6 +605,28 @@ class InstallDryRunTests(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("SaaS URL must be an HTTP pair API base URL", result.stderr)
 
+    def test_installer_rejects_saas_url_with_whitespace(self) -> None:
+        env = {
+            **os.environ,
+            "LAP_INSTALL_DRY_RUN": "1",
+            "LAP_TEST_URL": "http://192.168.1.108:18000\nInjected=value",
+        }
+        result = subprocess.run(
+            [
+                "bash",
+                "-c",
+                f'source {INSTALLER}; validate_saas_url "$LAP_TEST_URL"',
+            ],
+            capture_output=True,
+            text=True,
+            env=env,
+            check=False,
+            timeout=20,
+        )
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("SaaS URL must not contain whitespace", result.stderr)
+
     def test_installer_treats_no_as_pair_code_skip(self) -> None:
         env = {
             **os.environ,
@@ -505,7 +699,10 @@ class InstallDryRunTests(unittest.TestCase):
             "Environment=LAP_BASH_ALLOWED_EXTRA_BIND_PREFIXES=$PACKAGES_ROOT,$TOOLCHAIN_ROOT",
             installer_text,
         )
-        self.assertIn("Environment=LAP_RELEASE_MANIFEST_URL=$release_manifest_url", installer_text)
+        self.assertIn(
+            "Environment=LAP_RELEASE_MANIFEST_URL=$runtime_asset_manifest_url",
+            installer_text,
+        )
         self.assertIn("Environment=LAP_RELEASE_MANIFEST_PATH=$release_manifest_path", installer_text)
         self.assertIn("Environment=LAP_ASSET_CACHE_DIR=$asset_cache", installer_text)
 

@@ -23,11 +23,21 @@ http://<saas-host>:18000/v1/assets/lap-release/manifest.json
 
 The SaaS manifest points back to SaaS download URLs for daemon runtime, pack
 projects, and toolchains. The installer installs the daemon runtime, caches the
-manifest path/URL in the LAP service environment, writes `lap.service`, and
+bootstrap manifest, persists the runtime SaaS manifest URL and asset roots,
+writes `lap.service`, and
 optionally pairs the daemon during the same flow. Pack projects and toolchains
 remain on-demand assets: runtime flows download the one required by the
 connected board or compile target instead of installing every board package up
 front.
+
+The daemon bootstrap source and runtime asset source are separate. GitHub,
+Gitee, or a private release mirror may provide `install.sh` and the daemon
+runtime archive. After installation, selector-specific Pack and toolchain
+metadata and bytes always use the configured SaaS facade:
+
+```text
+<SaaS base URL>/v1/assets/lap-release/manifest.json
+```
 
 Operators may proactively materialize or inspect one asset with the installed
 CLI. These commands must run as the daemon user:
@@ -41,6 +51,25 @@ sudo -u <daemon-user> -H <install-root>/bin/lap assets status --soc F1 --json
 The CLI reads the asset URL, roots, and expected UID persisted by the installer
 in `<state-dir>/release-source.env`. Set `LAP_STATE_DIR=<state-dir>` when a
 non-default state directory was selected.
+
+`--soc` resolves one SoC toolchain. `--board` accepts the board manifest's
+`project` value, with or without the `Pack_` prefix, and resolves one
+self-contained `Pack_<project>` directory. Human output and `--json` both
+include the selected identity, server version, SHA256, and exact local path.
+`status` reads only local installed state and reports `ready`, `missing`, or
+`invalid`; LAP never calls PocketBase directly.
+
+The installer creates `<state-dir>/assets`, the Pack root, and the toolchain
+root with daemon-user ownership, but leaves the Pack/toolchain roots empty on a
+fresh install. It configures both asset roots as the only additional sandbox
+bind prefixes needed by compile/package tasks. Re-running the installer
+replaces the daemon runtime while preserving installed Packs, toolchains, and
+unrelated `toolchains.toml` profiles.
+
+An authoritative manifest, transfer, digest, extraction, activation, or local
+readiness failure stops the current operation. Older valid bytes remain on
+disk, but LAP does not use them as an offline fallback. Correct the failure and
+start a fresh operation.
 
 The installer also prepares the daemon user's systemd user manager by enabling
 linger and starting `user@<uid>.service`; `lap.service` receives the matching
@@ -84,7 +113,9 @@ service.
 
 ```bash
 curl -fsSL https://github.com/omni-stack-gen/lap-v2-releases/releases/download/v0.1.2/install.sh \
-  | sudo env LAP_RELEASE_SOURCE=github LAP_DAEMON_VERSION=v0.1.2 bash
+  | sudo env LAP_RELEASE_SOURCE=github \
+             LAP_DAEMON_VERSION=v0.1.2 \
+             LAP_SAAS_URL=http://<saas-host>:18000 bash
 ```
 
 When `LAP_RELEASE_SOURCE=github`, `LAP_DAEMON_VERSION` changes the manifest URL to:
@@ -99,14 +130,16 @@ Use this only for internal testing or private customer mirrors:
 
 ```bash
 curl -fsSL https://github.com/omni-stack-gen/lap-v2-releases/releases/download/v0.1.1/install.sh \
-  | sudo env LAP_RELEASE_PACKAGE_BASE=http://<gitlab-host>/api/v4/projects/<project-id>/packages/generic/<package> bash
+  | sudo env LAP_RELEASE_PACKAGE_BASE=http://<gitlab-host>/api/v4/projects/<project-id>/packages/generic/<package> \
+             LAP_SAAS_URL=http://<saas-host>:18000 bash
 ```
 
 For other mirrors, override the exact release directory URL directly:
 
 ```bash
 curl -fsSL <mirror>/install.sh \
-  | sudo env LAP_RELEASE_BASE_URL=<mirror>/<version> bash
+  | sudo env LAP_RELEASE_BASE_URL=<mirror>/<version> \
+             LAP_SAAS_URL=http://<saas-host>:18000 bash
 ```
 
 ## What Customers Can See
@@ -127,19 +160,19 @@ or into a service-controlled path before shipping.
 ## Expected Release Assets
 
 Each customer release version should publish or serve through the SaaS asset
-manifest:
+bootstrap path:
 
 ```text
 install.sh
 manifest.json
 SHA256SUMS
 lap-daemon-runtime.tar.gz
-lap-pack-projects.tar.gz
-lap-toolchains.tar.gz
 ```
 
 `manifest.json` is the installer's source of truth for asset URLs and hashes.
 `SHA256SUMS` is included for manual verification and release auditing.
+Selector-specific Pack and toolchain archives are managed independently by the
+SaaS asset catalog; they are not eagerly installed from this bootstrap set.
 
 For a moving install command, publish the intended Gitee Release and upload the
 same asset names there.

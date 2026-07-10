@@ -9,6 +9,7 @@ LAP v2 守护进程部署的发布资产与安装器。
 - 守护进程运行时安装在所选守护进程用户的家目录下
 - 状态与项目工作区位于 `/data/lap`
 - 按需落地的 pack 项目缓存位于 `/data/lap-packages`
+- 按需落地的 SoC toolchain 位于安装时选择的 toolchain 根目录
 - `lap.service` 由 systemd 托管
 
 当前 LAN 测试栈下，保持以下端点互不混淆：
@@ -24,7 +25,7 @@ LAP v2 守护进程部署的发布资产与安装器。
 
 默认情况下，安装器会询问 SaaS 资产 HTTP URL，从 SaaS 下载 release
 manifest，只安装 daemon runtime，并把 manifest 保存下来供后续按工程下载
-板级资产：
+板级资产，同时持久化可访问的 SaaS URL 和本地资产根目录：
 
 ```text
 <SaaS asset URL>/v1/assets/lap-release/manifest.json
@@ -39,26 +40,35 @@ curl -fsSL https://github.com/omni-stack-gen/lap-v2-releases/releases/download/v
              LAP_INSTALL_SLINT_PREVIEW=1 bash
 ```
 
-如需强制使用旧的 GitHub release 布局下载 manifest 和资产，设置
-`LAP_RELEASE_SOURCE=github`：
+如需从公开 GitHub release 获取 daemon 启动 manifest 和 runtime，设置
+`LAP_RELEASE_SOURCE=github`。运行期 Pack/toolchain 仍使用安装器持久化的
+SaaS URL：
 
 ```bash
 curl -fsSL https://github.com/omni-stack-gen/lap-v2-releases/releases/download/v0.1.2/install.sh \
-  | sudo env LAP_RELEASE_SOURCE=github LAP_INSTALL_SLINT_PREVIEW=1 bash
+  | sudo env LAP_RELEASE_SOURCE=github \
+             LAP_SAAS_URL="http://192.168.1.108:18000" \
+             LAP_INSTALL_SLINT_PREVIEW=1 bash
 ```
 
-中国大陆（或 GitHub 慢/不通时），用 `LAP_RELEASE_SOURCE=gitee` 从 Gitee 镜像安装——安装器会改从 Gitee 拉取清单与资产，而非 GitHub：
+中国大陆（或 GitHub 慢/不通时），可用 `LAP_RELEASE_SOURCE=gitee` 从
+Gitee 获取 daemon 启动包。运行期 Pack/toolchain 字节仍经过 SaaS 资产
+facade：
 
 ```bash
 curl -fsSL https://gitee.com/lch8/lap-v2-releases/releases/download/v0.1.2/install.sh \
-  | sudo env LAP_RELEASE_SOURCE=gitee LAP_INSTALL_SLINT_PREVIEW=1 bash
+  | sudo env LAP_RELEASE_SOURCE=gitee \
+             LAP_SAAS_URL="http://192.168.1.108:18000" \
+             LAP_INSTALL_SLINT_PREVIEW=1 bash
 ```
 
-旧 LAN 包注册表仍可用 `LAP_RELEASE_PACKAGE_BASE` 覆盖 manifest + asset base URL：
+旧 LAN 包注册表仍可用 `LAP_RELEASE_PACKAGE_BASE` 覆盖 daemon 启动
+manifest 和 runtime 压缩包地址：
 
 ```bash
 curl -fsSL "http://192.168.1.108:8090/api/v4/projects/5/packages/generic/lap-v2-release/latest/install.sh" \
   | sudo env LAP_RELEASE_PACKAGE_BASE="http://192.168.1.108:8090/api/v4/projects/5/packages/generic/lap-v2-release" \
+             LAP_SAAS_URL="http://192.168.1.108:18000" \
              LAP_INSTALL_SLINT_PREVIEW=1 bash
 ```
 
@@ -139,6 +149,36 @@ linker = "bin/riscv64-unknown-linux-gnu-gcc"
 一个 LAP 可以同时持有多个 SoC 的编译链；每个包提供一个不同的
 `profile`，本地 registry 由已经实际落地的 toolchain 合成。
 
+## 运行期托管资产
+
+普通安装会创建 cache、Pack 和 toolchain 根目录，但保持 Pack/toolchain
+为空。安装器只下载 `kind=daemon_runtime`；真实任务或运维命令随后按一个
+selector 向 SaaS manifest 请求资产：
+
+| Selector | 托管资产 | 本地兼容输出 |
+|---|---|---|
+| `--soc F1` | F1 交叉编译链 | `<toolchain-root>/toolchains.toml` 和不可变版本目录 |
+| `--board FD_F1_...` | `Pack_FD_F1_...` 工程 | `<packages-root>/Pack_FD_F1_...` 指向不可变版本 |
+
+每个 Pack 压缩包必须在自己的 `Pack_<project>` 目录内自包含 `pack.sh` 和
+依赖，不再依赖共享的顶层 `pack.sh` 或 `.venv`。
+
+安装器将以下配置写入 `<state-dir>/release-source.env`，并同步给
+`lap.service`：
+
+```text
+LAP_RELEASE_SAAS_URL=<可访问的 SaaS base URL>
+LAP_RELEASE_MANIFEST_URL=<SaaS base URL>/v1/assets/lap-release/manifest.json
+LAP_ASSET_CACHE_DIR=<state-dir>/assets
+LAP_PACKAGES_ROOT=<packages-root>
+LAP_TOOLCHAINS_ROOT=<toolchain-root>
+LAP_EXPECTED_UID=<daemon uid>
+```
+
+三个目录都由 daemon 用户持有。生成的 sandbox allowlist 只加入编译和
+打包需要的 Pack/toolchain 根目录。重新安装 daemon runtime 时，已安装的
+资产和无关 toolchain profile 会保留。
+
 运维人员也可以主动下载或检查 daemon 使用的同一套资产。命令必须以
 daemon 用户执行，以免产生混合属主：
 
@@ -150,6 +190,15 @@ sudo -u <daemon-user> -H <install-root>/bin/lap assets status --soc F1 --json
 
 若安装时选择了非默认 state 目录，还需传入 `LAP_STATE_DIR=<state-dir>`，
 CLI 才能加载安装器持久化的资产配置。
+
+`ensure` 每次都会检查 SaaS 当前 descriptor，并输出实际 identity、版本、
+SHA256、不可变路径以及是否复用了本地字节。`status` 只读本地状态，返回
+`ready`、`missing` 或 `invalid`。两者都不会直接访问 PocketBase。修改资产
+的命令必须以 daemon 用户运行；其他身份会在创建资产目录前被拒绝。
+
+manifest、下载、摘要、解压、激活或本地 readiness 任一环节失败，当前操作
+都会终止。旧的有效版本仍保留在磁盘，但不会作为 fallback 被本次操作使用；
+修复原因后需重新开始命令或 Web 操作。
 
 从这里开始：
 
