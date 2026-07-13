@@ -921,12 +921,51 @@ install_daemon_runtime_archive {archive} 0
             )
 
             self.assertNotEqual(result.returncode, 0)
-            self.assertIn("unsupported archive member", result.stderr)
+            self.assertIn("symlink target escapes runtime root", result.stderr)
             self.assertEqual(
                 (install_root / "bin" / "lap").read_text(encoding="utf-8"),
                 "old\n",
             )
             self.assertFalse((root / "escaped").exists())
+
+    def test_runtime_archive_allows_internal_relative_symlink(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            archive = root / "runtime.tar.gz"
+            with tarfile.open(archive, "w:gz") as tf:
+                for directory in ("bin", ".venv", ".venv/lib"):
+                    info = tarfile.TarInfo(directory)
+                    info.type = tarfile.DIRTYPE
+                    info.mode = 0o755
+                    tf.addfile(info)
+                lap = tarfile.TarInfo("bin/lap")
+                payload = b"#!/bin/sh\n"
+                lap.size = len(payload)
+                lap.mode = 0o755
+                tf.addfile(lap, io.BytesIO(payload))
+                link = tarfile.TarInfo(".venv/lib64")
+                link.type = tarfile.SYMTYPE
+                link.linkname = "lib"
+                tf.addfile(link)
+
+            install_root = root / "lap"
+            script = f"""
+set -Eeuo pipefail
+source {INSTALLER}
+chown() {{ :; }}
+DAEMON_USER={os.environ.get("USER", "laptest")}
+DAEMON_GROUP={os.environ.get("USER", "laptest")}
+INSTALL_ROOT={install_root}
+RUNTIME_PREVIOUS_PATH=""
+install_daemon_runtime_archive {archive} 0
+"""
+            result = subprocess.run(
+                ["bash", "-c", script], capture_output=True, text=True, check=False
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+            self.assertTrue((install_root / ".venv" / "lib64").is_symlink())
+            self.assertEqual(os.readlink(install_root / ".venv" / "lib64"), "lib")
 
     def test_runtime_activation_can_atomically_roll_back(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

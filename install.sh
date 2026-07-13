@@ -935,7 +935,27 @@ if compressed > max_compressed:
 seen: set[str] = set()
 files: list[tuple[tarfile.TarInfo, Path]] = []
 directories: list[tuple[tarfile.TarInfo, Path]] = []
+symlinks: list[tuple[tarfile.TarInfo, Path]] = []
 expanded = 0
+
+
+def normalized_link_parts(base: tuple[str, ...], linkname: str) -> tuple[str, ...]:
+    raw_link = PurePosixPath(linkname)
+    if raw_link.is_absolute():
+        raise SystemExit(f"unsafe absolute symlink target: {linkname}")
+    result = list(base)
+    for part in raw_link.parts:
+        if part in ("", "."):
+            continue
+        if part == "..":
+            if not result:
+                raise SystemExit(f"symlink target escapes runtime root: {linkname}")
+            result.pop()
+        else:
+            result.append(part)
+    return tuple(result)
+
+
 with tarfile.open(archive, mode="r:gz") as tf:
     for index, member in enumerate(tf, start=1):
         if index > max_members:
@@ -957,7 +977,11 @@ with tarfile.open(archive, mode="r:gz") as tf:
         if member.isdir():
             directories.append((member, target))
             continue
-        if not member.isfile() or member.issparse():
+        if member.issym():
+            normalized_link_parts(relative.parent.parts, member.linkname)
+            symlinks.append((member, target))
+            continue
+        if not member.isfile() or member.issparse() or member.islnk():
             raise SystemExit(f"unsupported archive member: {member.name}")
         if member.size < 0:
             raise SystemExit(f"invalid archive member size: {member.name}")
@@ -994,6 +1018,11 @@ with tarfile.open(archive, mode="r:gz") as tf:
             os.close(fd)
             source.close()
         target.chmod((member.mode & 0o777) or 0o600)
+
+    # Links are created last so no regular-file extraction can traverse one.
+    for member, target in symlinks:
+        target.parent.mkdir(parents=True, exist_ok=True)
+        os.symlink(member.linkname, target)
 PY
 }
 
