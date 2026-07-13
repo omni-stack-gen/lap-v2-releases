@@ -20,6 +20,34 @@ EXAMPLE = ROOT / "examples" / "manifest.example.json"
 
 
 class InstallDryRunTests(unittest.TestCase):
+    def test_minimal_system_bootstraps_python_before_manifest_processing(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            calls = Path(tmp) / "apt.log"
+            script = f"""
+set -Eeuo pipefail
+source {INSTALLER}
+command() {{
+  if [[ "$1" == "-v" ]]; then
+    case "$2" in
+      python3) return 1 ;;
+      apt-get|curl|tar|sha256sum) return 0 ;;
+    esac
+  fi
+  builtin command "$@"
+}}
+apt-get() {{ printf '%s\\n' "$*" >> {calls}; }}
+bootstrap_required_commands
+"""
+            result = subprocess.run(
+                ["bash", "-c", script], capture_output=True, text=True, check=False
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+            self.assertEqual(
+                calls.read_text(encoding="utf-8").splitlines(),
+                ["update", "install -y --no-install-recommends python3"],
+            )
+
     def test_fresh_install_materializes_only_daemon_runtime_and_empty_asset_roots(
         self,
     ) -> None:

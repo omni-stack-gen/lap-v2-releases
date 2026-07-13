@@ -269,6 +269,37 @@ require_commands() {
   fi
 }
 
+bootstrap_required_commands() {
+  local packages=()
+  local cmd package existing candidate
+  for cmd in python3 curl tar sha256sum; do
+    command -v "$cmd" >/dev/null 2>&1 && continue
+    case "$cmd" in
+      python3) package="python3" ;;
+      curl) package="curl" ;;
+      tar) package="tar" ;;
+      sha256sum) package="coreutils" ;;
+    esac
+    existing="false"
+    for candidate in "${packages[@]}"; do
+      if [[ "$candidate" == "$package" ]]; then
+        existing="true"
+        break
+      fi
+    done
+    [[ "$existing" == "true" ]] || packages+=("$package")
+  done
+  ((${#packages[@]})) || return 0
+  if is_dry_run; then
+    die "missing required command package(s) in dry run: ${packages[*]}"
+  fi
+  command -v apt-get >/dev/null 2>&1 ||
+    die "missing required command(s) and apt-get is unavailable: ${packages[*]}"
+  log "bootstrapping required command packages: ${packages[*]}"
+  DEBIAN_FRONTEND=noninteractive apt-get update
+  DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends "${packages[@]}"
+}
+
 validate_abs_path() {
   local name="$1"
   local path="$2"
@@ -1475,6 +1506,7 @@ EOF
 main() {
   require_no_args "$@"
   require_root_unless_dry_run
+  bootstrap_required_commands
   require_commands
 
   log "LAP daemon installer $SCRIPT_VERSION"
