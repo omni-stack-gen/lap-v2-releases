@@ -835,11 +835,11 @@ prepare_user_manager() {
 install_daemon_runtime_archive() {
   local archive="$1"
   local strip="$2"
-  local parent stage backup="" had_previous="false"
+  local parent stage
   parent="$(dirname "$INSTALL_ROOT")"
   mkdir -p "$parent"
   stage="$(mktemp -d "$parent/.lap-runtime-stage.XXXXXX")"
-  if ! tar -xzf "$archive" -C "$stage" --strip-components "$strip"; then
+  if ! safe_extract_runtime_archive "$archive" "$stage" "$strip"; then
     rm -rf "$stage"
     die "failed to extract daemon runtime"
   fi
@@ -852,26 +852,183 @@ install_daemon_runtime_archive() {
     die "failed to set daemon runtime ownership"
   fi
 
-  if dir_nonempty "$INSTALL_ROOT"; then
-    backup="$(mktemp -d "$parent/.lap-runtime-backup.XXXXXX")"
-    rmdir "$backup"
-    mv "$INSTALL_ROOT" "$backup"
-    had_previous="true"
-  elif [[ -d "$INSTALL_ROOT" ]]; then
-    rmdir "$INSTALL_ROOT"
-  fi
-
-  if ! mv "$stage" "$INSTALL_ROOT"; then
-    rm -rf "$stage"
-    if [[ "$had_previous" == "true" ]]; then
-      mv "$backup" "$INSTALL_ROOT" ||
-        die "daemon runtime replacement failed and rollback also failed: $backup"
+  if [[ -e "$INSTALL_ROOT" ]]; then
+    atomic_exchange_dirs "$stage" "$INSTALL_ROOT" || {
+      rm -rf "$stage"
+      die "failed to atomically activate daemon runtime"
+    }
+    if dir_nonempty "$stage"; then
+      RUNTIME_PREVIOUS_PATH="$stage"
+    else
+      rm -rf "$stage"
+      RUNTIME_PREVIOUS_PATH=""
     fi
+  elif ! mv "$stage" "$INSTALL_ROOT"; then
+    rm -rf "$stage"
     die "failed to activate daemon runtime"
   fi
-  if [[ "$had_previous" == "true" ]]; then
-    rm -rf "$backup"
+}
+
+safe_extract_runtime_archive() {
+  local archive="$1"
+  local destination="$2"
+  local strip="$3"
+  LAP_ARCHIVE_MAX_COMPRESSED_BYTES="${LAP_ARCHIVE_MAX_COMPRESSED_BYTES:-4294967296}" \
+  LAP_ARCHIVE_MAX_EXPANDED_BYTES="${LAP_ARCHIVE_MAX_EXPANDED_BYTES:-17179869184}" \
+  LAP_ARCHIVE_MAX_MEMBERS="${LAP_ARCHIVE_MAX_MEMBERS:-250000}" \
+  LAP_ARCHIVE_FREE_RESERVE_BYTES="${LAP_ARCHIVE_FREE_RESERVE_BYTES:-536870912}" \
+  python3 - "$archive" "$destination" "$strip" <<'PY'
+import os
+import shutil
+import sys
+import tarfile
+from pathlib import Path, PurePosixPath
+
+archive = Path(sys.argv[1])
+destination = Path(sys.argv[2])
+try:
+    strip = int(sys.argv[3])
+except ValueError as exc:
+    raise SystemExit(f"invalid strip_components: {sys.argv[3]}") from exc
+if strip < 0:
+    raise SystemExit("strip_components must be non-negative")
+
+max_compressed = int(os.environ["LAP_ARCHIVE_MAX_COMPRESSED_BYTES"])
+max_expanded = int(os.environ["LAP_ARCHIVE_MAX_EXPANDED_BYTES"])
+max_members = int(os.environ["LAP_ARCHIVE_MAX_MEMBERS"])
+reserve = int(os.environ["LAP_ARCHIVE_FREE_RESERVE_BYTES"])
+compressed = archive.stat().st_size
+if compressed > max_compressed:
+    raise SystemExit(f"archive exceeds compressed size limit: {compressed}")
+
+seen: set[str] = set()
+files: list[tuple[tarfile.TarInfo, Path]] = []
+directories: list[tuple[tarfile.TarInfo, Path]] = []
+expanded = 0
+with tarfile.open(archive, mode="r:gz") as tf:
+    for index, member in enumerate(tf, start=1):
+        if index > max_members:
+            raise SystemExit(f"archive exceeds member limit: {max_members}")
+        raw = PurePosixPath(member.name)
+        if raw.is_absolute() or ".." in raw.parts:
+            raise SystemExit(f"unsafe archive path: {member.name}")
+        parts = [part for part in raw.parts if part not in ("", ".")]
+        if len(parts) <= strip:
+            continue
+        relative = PurePosixPath(*parts[strip:])
+        key = relative.as_posix()
+        if key in seen:
+            # Some existing release tarballs were created recursively and list
+            # the same child twice. Keep the first entry and never overwrite it.
+            continue
+        seen.add(key)
+        target = destination.joinpath(*relative.parts)
+        if member.isdir():
+            directories.append((member, target))
+            continue
+        if not member.isfile() or member.issparse():
+            raise SystemExit(f"unsupported archive member: {member.name}")
+        if member.size < 0:
+            raise SystemExit(f"invalid archive member size: {member.name}")
+        expanded += member.size
+        if expanded > max_expanded:
+            raise SystemExit(f"archive exceeds expanded size limit: {max_expanded}")
+        files.append((member, target))
+
+    free = shutil.disk_usage(destination).free
+    if expanded + reserve > free:
+        raise SystemExit(
+            f"insufficient free space: need {expanded + reserve} bytes, have {free}"
+        )
+
+    for member, target in sorted(directories, key=lambda item: len(item[1].parts)):
+        target.mkdir(parents=True, exist_ok=True)
+        target.chmod((member.mode & 0o777) or 0o755)
+
+    for member, target in files:
+        target.parent.mkdir(parents=True, exist_ok=True)
+        source = tf.extractfile(member)
+        if source is None:
+            raise SystemExit(f"cannot read archive member: {member.name}")
+        flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_CLOEXEC
+        if hasattr(os, "O_NOFOLLOW"):
+            flags |= os.O_NOFOLLOW
+        fd = os.open(target, flags, (member.mode & 0o777) or 0o600)
+        try:
+            with os.fdopen(fd, "wb", closefd=False) as output:
+                shutil.copyfileobj(source, output, length=1024 * 1024)
+                output.flush()
+                os.fsync(output.fileno())
+        finally:
+            os.close(fd)
+            source.close()
+        target.chmod((member.mode & 0o777) or 0o600)
+PY
+}
+
+atomic_exchange_dirs() {
+  local left="$1"
+  local right="$2"
+  python3 - "$left" "$right" <<'PY'
+import ctypes
+import os
+import sys
+
+libc = ctypes.CDLL(None, use_errno=True)
+renameat2 = getattr(libc, "renameat2", None)
+if renameat2 is None:
+    raise SystemExit("renameat2 is unavailable; refusing a non-atomic runtime upgrade")
+renameat2.argtypes = [ctypes.c_int, ctypes.c_char_p, ctypes.c_int, ctypes.c_char_p, ctypes.c_uint]
+renameat2.restype = ctypes.c_int
+at_fdcwd = -100
+rename_exchange = 2
+result = renameat2(
+    at_fdcwd,
+    os.fsencode(sys.argv[1]),
+    at_fdcwd,
+    os.fsencode(sys.argv[2]),
+    rename_exchange,
+)
+if result != 0:
+    errno = ctypes.get_errno()
+    raise OSError(errno, os.strerror(errno))
+parent_fd = os.open(os.path.dirname(sys.argv[2]), os.O_RDONLY | os.O_DIRECTORY)
+try:
+    os.fsync(parent_fd)
+finally:
+    os.close(parent_fd)
+PY
+}
+
+rollback_runtime_upgrade() {
+  [[ -n "${RUNTIME_PREVIOUS_PATH:-}" && -d "$RUNTIME_PREVIOUS_PATH" ]] || return 0
+  log "rolling back daemon runtime"
+  atomic_exchange_dirs "$RUNTIME_PREVIOUS_PATH" "$INSTALL_ROOT" || return 1
+  rm -rf "$RUNTIME_PREVIOUS_PATH"
+  RUNTIME_PREVIOUS_PATH=""
+}
+
+finalize_runtime_upgrade() {
+  if [[ -n "${RUNTIME_PREVIOUS_PATH:-}" ]]; then
+    rm -rf "$RUNTIME_PREVIOUS_PATH"
+    RUNTIME_PREVIOUS_PATH=""
   fi
+}
+
+cleanup_install() {
+  local status="$?"
+  trap - EXIT
+  if [[ "$status" -ne 0 ]] && [[ -n "${RUNTIME_PREVIOUS_PATH:-}" ]]; then
+    if rollback_runtime_upgrade; then
+      if [[ "${SERVICE_WAS_ACTIVE:-false}" == "true" ]] && command -v systemctl >/dev/null 2>&1; then
+        systemctl restart lap.service || true
+      fi
+    else
+      log "ERROR: automatic runtime rollback failed: $RUNTIME_PREVIOUS_PATH"
+    fi
+  fi
+  [[ -z "${INSTALL_TMP_DIR:-}" ]] || rm -rf "$INSTALL_TMP_DIR"
+  exit "$status"
 }
 
 install_assets() {
@@ -953,7 +1110,7 @@ WorkingDirectory=$INSTALL_ROOT
 Environment=LAP_STATE_DIR=$STATE_DIR
 Environment=LAP_WORKSPACE_ROOT=$WORKSPACE_ROOT
 Environment=LAP_PACKAGES_ROOT=$PACKAGES_ROOT
-Environment=LAP_BASH_ALLOWED_EXTRA_BIND_PREFIXES=$PACKAGES_ROOT,$TOOLCHAIN_ROOT
+Environment=LAP_BASH_ALLOWED_EXTRA_RO_BIND_PREFIXES=$PACKAGES_ROOT,$TOOLCHAIN_ROOT
 Environment=LAP_TOOLCHAINS_ROOT=$TOOLCHAIN_ROOT
 Environment=LAP_RELEASE_MANIFEST_URL=$runtime_asset_manifest_url
 Environment=LAP_RELEASE_MANIFEST_PATH=$release_manifest_path
@@ -1120,7 +1277,8 @@ fi
 
 ensure_user_manager
 systemctl daemon-reload
-if ! systemctl enable --now lap.service; then
+systemctl enable lap.service
+if ! systemctl restart lap.service; then
   systemctl status lap.service --no-pager -l || true
   journalctl -u lap.service -n 80 --no-pager -l || true
   die "failed to enable/start lap.service"
@@ -1135,11 +1293,29 @@ EOF
   chown "$DAEMON_USER:$DAEMON_GROUP" "$helper"
 }
 
+restart_active_service() {
+  if is_dry_run; then
+    log "dry run: would restart lap.service when already active"
+    return
+  fi
+  if ! systemctl is-active --quiet lap.service; then
+    return
+  fi
+  SERVICE_WAS_ACTIVE="true"
+  log "restarting active lap.service with the installed runtime"
+  if ! systemctl restart lap.service || ! systemctl is-active --quiet lap.service; then
+    systemctl status lap.service --no-pager -l || true
+    journalctl -u lap.service -n 80 --no-pager -l || true
+    die "failed to restart upgraded lap.service"
+  fi
+  SERVICE_STARTED="true"
+}
+
 pair_and_start() {
   local saas_url="$1"
   PAIR_STATUS="skipped"
   PROXY_ID=""
-  SERVICE_STARTED="false"
+  SERVICE_STARTED="${SERVICE_STARTED:-false}"
   PAIR_WS_ENDPOINT=""
 
   if ! prompt_yes_no "Pair daemon now (enter n here to skip)" "y"; then
@@ -1321,7 +1497,9 @@ main() {
   log "release manifest: $selected_manifest_url"
 
   INSTALL_TMP_DIR="$(mktemp -d)"
-  trap 'rm -rf "$INSTALL_TMP_DIR"' EXIT
+  RUNTIME_PREVIOUS_PATH=""
+  SERVICE_WAS_ACTIVE="false"
+  trap cleanup_install EXIT
   manifest_path="$INSTALL_TMP_DIR/manifest.json"
   fetch_manifest "$selected_manifest_url" "$manifest_path"
   validate_manifest "$manifest_path"
@@ -1420,8 +1598,10 @@ EOF
   prepare_user_manager
   write_systemd_unit "$runtime_asset_manifest_url" "$default_saas_url"
   write_pair_helper "$default_pair_url"
+  restart_active_service
   pair_and_start "$default_pair_url"
   write_report "$manifest_path"
+  finalize_runtime_upgrade
   print_summary
 
   if is_dry_run; then

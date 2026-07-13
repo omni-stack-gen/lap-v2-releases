@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import io
 import json
 import os
 import subprocess
@@ -696,7 +697,7 @@ install_assets {manifest} {scratch}
     def test_systemd_unit_allows_configured_asset_root_extra_binds(self) -> None:
         installer_text = INSTALLER.read_text(encoding="utf-8")
         self.assertIn(
-            "Environment=LAP_BASH_ALLOWED_EXTRA_BIND_PREFIXES=$PACKAGES_ROOT,$TOOLCHAIN_ROOT",
+            "Environment=LAP_BASH_ALLOWED_EXTRA_RO_BIND_PREFIXES=$PACKAGES_ROOT,$TOOLCHAIN_ROOT",
             installer_text,
         )
         self.assertIn(
@@ -851,7 +852,110 @@ write_pair_helper http://192.168.1.108:38082
             self.assertIn('systemctl start "user@$DAEMON_UID.service"', helper_text)
             self.assertIn('bus_path="$runtime_dir/bus"', helper_text)
             self.assertIn("LAP_ALLOW_INSECURE_WS=1", helper_text)
-            self.assertIn("systemctl enable --now lap.service", helper_text)
+            self.assertIn("systemctl enable lap.service", helper_text)
+            self.assertIn("systemctl restart lap.service", helper_text)
+
+    def test_runtime_archive_rejects_links_before_replacing_existing_runtime(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            install_root = root / "lap"
+            (install_root / "bin").mkdir(parents=True)
+            (install_root / "bin" / "lap").write_text("old\n", encoding="utf-8")
+            (install_root / "bin" / "lap").chmod(0o755)
+            (install_root / ".venv").mkdir()
+            archive = root / "malicious.tar.gz"
+            with tarfile.open(archive, "w:gz") as tf:
+                lap = tarfile.TarInfo("bin/lap")
+                payload = b"new\n"
+                lap.size = len(payload)
+                lap.mode = 0o755
+                tf.addfile(lap, io.BytesIO(payload))
+                venv = tarfile.TarInfo(".venv")
+                venv.type = tarfile.DIRTYPE
+                tf.addfile(venv)
+                link = tarfile.TarInfo(".venv/escape")
+                link.type = tarfile.SYMTYPE
+                link.linkname = "../../escaped"
+                tf.addfile(link)
+
+            script = f"""
+set -Eeuo pipefail
+source {INSTALLER}
+chown() {{ :; }}
+DAEMON_USER={os.environ.get("USER", "laptest")}
+DAEMON_GROUP={os.environ.get("USER", "laptest")}
+INSTALL_ROOT={install_root}
+RUNTIME_PREVIOUS_PATH=""
+install_daemon_runtime_archive {archive} 0
+"""
+            result = subprocess.run(
+                ["bash", "-c", script], capture_output=True, text=True, check=False
+            )
+
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("unsupported archive member", result.stderr)
+            self.assertEqual(
+                (install_root / "bin" / "lap").read_text(encoding="utf-8"),
+                "old\n",
+            )
+            self.assertFalse((root / "escaped").exists())
+
+    def test_runtime_activation_can_atomically_roll_back(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            install_root = root / "lap"
+            (install_root / "bin").mkdir(parents=True)
+            old_lap = install_root / "bin" / "lap"
+            old_lap.write_text("old\n", encoding="utf-8")
+            old_lap.chmod(0o755)
+            (install_root / ".venv").mkdir()
+
+            source = root / "source"
+            (source / "bin").mkdir(parents=True)
+            new_lap = source / "bin" / "lap"
+            new_lap.write_text("new\n", encoding="utf-8")
+            new_lap.chmod(0o755)
+            (source / ".venv").mkdir()
+            archive = root / "runtime.tar.gz"
+            with tarfile.open(archive, "w:gz") as tf:
+                for path in sorted(source.rglob("*")):
+                    tf.add(path, arcname=path.relative_to(source), recursive=False)
+
+            script = f"""
+set -Eeuo pipefail
+source {INSTALLER}
+chown() {{ :; }}
+DAEMON_USER={os.environ.get("USER", "laptest")}
+DAEMON_GROUP={os.environ.get("USER", "laptest")}
+INSTALL_ROOT={install_root}
+RUNTIME_PREVIOUS_PATH=""
+install_daemon_runtime_archive {archive} 0
+[[ "$(cat {install_root / 'bin' / 'lap'})" == "new" ]]
+rollback_runtime_upgrade
+[[ "$(cat {install_root / 'bin' / 'lap'})" == "old" ]]
+"""
+            result = subprocess.run(
+                ["bash", "-c", script], capture_output=True, text=True, check=False
+            )
+            self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+
+    def test_active_service_is_restarted_without_repairing(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            calls = Path(tmp) / "systemctl.log"
+            script = f"""
+set -Eeuo pipefail
+source {INSTALLER}
+systemctl() {{ printf '%s\\n' "$*" >> {calls}; return 0; }}
+SERVICE_STARTED=false
+restart_active_service
+[[ "$SERVICE_STARTED" == "true" ]]
+"""
+            result = subprocess.run(
+                ["bash", "-c", script], capture_output=True, text=True, check=False
+            )
+            self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+            self.assertIn("is-active --quiet lap.service", calls.read_text())
+            self.assertIn("restart lap.service", calls.read_text())
 
 
 if __name__ == "__main__":
