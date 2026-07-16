@@ -3,10 +3,10 @@
 This is the customer-facing distribution shape. Customers receive one install
 command and do not need access to the source/build repository.
 
-## Install v0.1.2
+## Install v0.1.3
 
 ```bash
-curl -fsSL https://github.com/omni-stack-gen/lap-v2-releases/releases/download/v0.1.2/install.sh \
+curl -fsSL https://github.com/omni-stack-gen/lap-v2-releases/releases/download/v0.1.3/install.sh \
   | sudo env LAP_SAAS_URL=http://<saas-host>:18000 bash
 ```
 
@@ -112,9 +112,9 @@ service.
 ## Pin A Version
 
 ```bash
-curl -fsSL https://github.com/omni-stack-gen/lap-v2-releases/releases/download/v0.1.2/install.sh \
+curl -fsSL https://github.com/omni-stack-gen/lap-v2-releases/releases/download/v0.1.3/install.sh \
   | sudo env LAP_RELEASE_SOURCE=github \
-             LAP_DAEMON_VERSION=v0.1.2 \
+             LAP_DAEMON_VERSION=v0.1.3 \
              LAP_SAAS_URL=http://<saas-host>:18000 bash
 ```
 
@@ -129,7 +129,7 @@ https://github.com/omni-stack-gen/lap-v2-releases/releases/download/<version>/ma
 Use this only for internal testing or private customer mirrors:
 
 ```bash
-curl -fsSL https://github.com/omni-stack-gen/lap-v2-releases/releases/download/v0.1.1/install.sh \
+curl -fsSL https://github.com/omni-stack-gen/lap-v2-releases/releases/download/v0.1.3/install.sh \
   | sudo env LAP_RELEASE_PACKAGE_BASE=http://<gitlab-host>/api/v4/projects/<project-id>/packages/generic/<package> \
              LAP_SAAS_URL=http://<saas-host>:18000 bash
 ```

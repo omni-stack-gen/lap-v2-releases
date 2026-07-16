@@ -3,9 +3,9 @@ set -Eeuo pipefail
 
 OWNER="${GITEE_OWNER:-lch8}"
 REPO="${GITEE_REPO:-lap-v2-releases}"
-TAG="${GITEE_RELEASE_TAG:-v0.1.1}"
+TAG="${GITEE_RELEASE_TAG:-v0.1.3}"
 TARGET="${GITEE_TARGET_COMMITISH:-main}"
-DIST_DIR="${GITEE_RELEASE_DIST_DIR:-dist/$TAG}"
+DIST_DIR="${GITEE_RELEASE_DIST_DIR:-dist-gitee/$TAG}"
 API_BASE="${GITEE_API_BASE:-https://gitee.com/api/v5}"
 
 die() {

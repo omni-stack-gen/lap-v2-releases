@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-SCRIPT_VERSION="0.1.1-dev"
+SCRIPT_VERSION="0.1.3"
 # Release asset download hosts. The default source is the OmniStack SaaS asset
 # endpoint entered during install. LAP_RELEASE_SOURCE=github|gitee keeps the old
 # GitHub-style release layout as an explicit fallback. An explicit
@@ -9,7 +9,7 @@ SCRIPT_VERSION="0.1.1-dev"
 # still overrides the source selection.
 GITHUB_RELEASE_BASE="https://github.com/omni-stack-gen/lap-v2-releases/releases/download"
 GITEE_RELEASE_BASE="https://gitee.com/lch8/lap-v2-releases/releases/download"
-DEFAULT_RELEASE_VERSION="v0.1.2"
+DEFAULT_RELEASE_VERSION="v0.1.3"
 DEFAULT_SAAS_URL="http://127.0.0.1:18000"
 APT_PACKAGES=(
   ca-certificates

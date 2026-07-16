@@ -478,7 +478,7 @@ install_assets {manifest} {scratch}
         self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
         self.assertEqual(
             result.stdout.strip(),
-            "https://gitee.com/lch8/lap-v2-releases/releases/download/v0.1.2/manifest.json",
+            "https://gitee.com/lch8/lap-v2-releases/releases/download/v0.1.3/manifest.json",
         )
 
     def test_installer_gitee_source_with_pinned_version(self) -> None:

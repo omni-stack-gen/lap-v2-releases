@@ -34,7 +34,7 @@ manifest，只安装 daemon runtime，并把 manifest 保存下来供后续按�
 当前 LAN 栈示例：
 
 ```bash
-curl -fsSL https://github.com/omni-stack-gen/lap-v2-releases/releases/download/v0.1.2/install.sh \
+curl -fsSL https://github.com/omni-stack-gen/lap-v2-releases/releases/download/v0.1.3/install.sh \
   | sudo env LAP_SAAS_URL="http://192.168.1.108:18000" \
              LAP_PAIR_API_URL="http://192.168.1.108:38082" \
              LAP_INSTALL_SLINT_PREVIEW=1 bash
@@ -45,7 +45,7 @@ curl -fsSL https://github.com/omni-stack-gen/lap-v2-releases/releases/download/v
 SaaS URL：
 
 ```bash
-curl -fsSL https://github.com/omni-stack-gen/lap-v2-releases/releases/download/v0.1.2/install.sh \
+curl -fsSL https://github.com/omni-stack-gen/lap-v2-releases/releases/download/v0.1.3/install.sh \
   | sudo env LAP_RELEASE_SOURCE=github \
              LAP_SAAS_URL="http://192.168.1.108:18000" \
              LAP_INSTALL_SLINT_PREVIEW=1 bash
@@ -56,7 +56,7 @@ Gitee 获取 daemon 启动包。运行期 Pack/toolchain 字节仍经过 SaaS �
 facade：
 
 ```bash
-curl -fsSL https://gitee.com/lch8/lap-v2-releases/releases/download/v0.1.2/install.sh \
+curl -fsSL https://gitee.com/lch8/lap-v2-releases/releases/download/v0.1.3/install.sh \
   | sudo env LAP_RELEASE_SOURCE=gitee \
              LAP_SAAS_URL="http://192.168.1.108:18000" \
              LAP_INSTALL_SLINT_PREVIEW=1 bash
@@ -111,7 +111,7 @@ sudo journalctl -u lap.service -f         # 实时日志
 面向客户的安装形态：
 
 ```bash
-curl -fsSL https://github.com/omni-stack-gen/lap-v2-releases/releases/download/v0.1.2/install.sh | sudo bash
+curl -fsSL https://github.com/omni-stack-gen/lap-v2-releases/releases/download/v0.1.3/install.sh | sudo bash
 ```
 
 面向客户的发布项目应只暴露安装文档与发布产物。源码与原始构建输入留在私有/内部仓库中。

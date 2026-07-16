@@ -36,7 +36,7 @@ reachable SaaS URL and local roots for later on-demand board and SoC assets:
 For the current LAN stack:
 
 ```bash
-curl -fsSL https://github.com/omni-stack-gen/lap-v2-releases/releases/download/v0.1.2/install.sh \
+curl -fsSL https://github.com/omni-stack-gen/lap-v2-releases/releases/download/v0.1.3/install.sh \
   | sudo env LAP_SAAS_URL="http://192.168.1.108:18000" \
              LAP_PAIR_API_URL="http://192.168.1.108:38082" \
              LAP_INSTALL_SLINT_PREVIEW=1 bash
@@ -47,7 +47,7 @@ release, set `LAP_RELEASE_SOURCE=github`. Managed Pack and toolchain requests
 still use the SaaS URL persisted by the installer:
 
 ```bash
-curl -fsSL https://github.com/omni-stack-gen/lap-v2-releases/releases/download/v0.1.2/install.sh \
+curl -fsSL https://github.com/omni-stack-gen/lap-v2-releases/releases/download/v0.1.3/install.sh \
   | sudo env LAP_RELEASE_SOURCE=github \
              LAP_SAAS_URL="http://192.168.1.108:18000" \
              LAP_INSTALL_SLINT_PREVIEW=1 bash
@@ -58,7 +58,7 @@ Gitee mirror with `LAP_RELEASE_SOURCE=gitee`. Runtime Pack and toolchain bytes
 still come through the SaaS asset facade:
 
 ```bash
-curl -fsSL https://gitee.com/lch8/lap-v2-releases/releases/download/v0.1.2/install.sh \
+curl -fsSL https://gitee.com/lch8/lap-v2-releases/releases/download/v0.1.3/install.sh \
   | sudo env LAP_RELEASE_SOURCE=gitee \
              LAP_SAAS_URL="http://192.168.1.108:18000" \
              LAP_INSTALL_SLINT_PREVIEW=1 bash
@@ -121,7 +121,7 @@ sudo journalctl -u lap.service -f         # live logs
 Customer-facing install shape:
 
 ```bash
-curl -fsSL https://github.com/omni-stack-gen/lap-v2-releases/releases/download/v0.1.2/install.sh | sudo bash
+curl -fsSL https://github.com/omni-stack-gen/lap-v2-releases/releases/download/v0.1.3/install.sh | sudo bash
 ```
 
 The customer-facing release project should only expose install docs and release
