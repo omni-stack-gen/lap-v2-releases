@@ -9,6 +9,7 @@ the interactive installer can consume.
 from __future__ import annotations
 
 import argparse
+import gzip
 import hashlib
 import json
 import os
@@ -150,23 +151,27 @@ def _iter_archive_paths(root: Path) -> list[Path]:
 
 def make_tarball(source_dir: Path, dest: Path) -> None:
     dest.parent.mkdir(parents=True, exist_ok=True)
-    with tarfile.open(dest, "w:gz") as tf:
-        for path in _iter_archive_paths(source_dir):
-            rel = path.relative_to(source_dir).as_posix()
-            info = tf.gettarinfo(str(path), arcname=rel)
-            # Normalize metadata enough for stable-ish release diffs without
-            # disturbing executable mode bits.
-            info.uid = 0
-            info.gid = 0
-            info.uname = ""
-            info.gname = ""
-            if path.is_symlink():
-                tf.addfile(info)
-            elif path.is_dir():
-                tf.addfile(info)
-            else:
-                with path.open("rb") as fh:
-                    tf.addfile(info, fh)
+    with dest.open("wb") as raw:
+        # Keep mirror builds byte-identical: gzip otherwise embeds the current
+        # timestamp and tar members inherit mutable source-tree mtimes.
+        with gzip.GzipFile(filename="", mode="wb", fileobj=raw, mtime=0) as compressed:
+            with tarfile.open(fileobj=compressed, mode="w") as tf:
+                for path in _iter_archive_paths(source_dir):
+                    rel = path.relative_to(source_dir).as_posix()
+                    info = tf.gettarinfo(str(path), arcname=rel)
+                    # Preserve executable mode bits while normalizing metadata.
+                    info.uid = 0
+                    info.gid = 0
+                    info.uname = ""
+                    info.gname = ""
+                    info.mtime = 0
+                    if path.is_symlink():
+                        tf.addfile(info)
+                    elif path.is_dir():
+                        tf.addfile(info)
+                    else:
+                        with path.open("rb") as fh:
+                            tf.addfile(info, fh)
 
 
 def sha256_file(path: Path) -> str:

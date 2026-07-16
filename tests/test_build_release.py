@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import sys
 import tarfile
@@ -158,6 +159,41 @@ class BuildReleaseTests(unittest.TestCase):
             self.assertEqual(result.returncode, 2)
             self.assertIn("required path missing", result.stderr)
             self.assertIn("pack.sh", result.stderr)
+
+    def test_release_tarballs_are_reproducible_across_source_mtime_changes(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            runtime, pack, toolchains = _make_source_tree(tmp_path / "src")
+            config_path = _config(tmp_path, runtime, pack, toolchains)
+            outputs = (tmp_path / "dist-one", tmp_path / "dist-two")
+
+            for out_dir in outputs:
+                result = subprocess.run(
+                    [
+                        sys.executable,
+                        str(BUILDER),
+                        "--config",
+                        str(config_path),
+                        "--out-dir",
+                        str(out_dir),
+                    ],
+                    capture_output=True,
+                    text=True,
+                    check=False,
+                )
+                self.assertEqual(result.returncode, 0, result.stderr)
+                for source in (runtime, pack, toolchains):
+                    for path in source.rglob("*"):
+                        os.utime(path, (1_800_000_000, 1_800_000_000))
+
+            for archive_name in (
+                "lap-daemon-runtime.tar.gz",
+                "lap-pack-projects.tar.gz",
+                "lap-toolchains.tar.gz",
+            ):
+                first = outputs[0] / "v-test" / archive_name
+                second = outputs[1] / "v-test" / archive_name
+                self.assertEqual(first.read_bytes(), second.read_bytes())
 
     def test_build_release_allows_url_overrides(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
