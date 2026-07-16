@@ -1,0 +1,46 @@
+Pack_FD_F1_R88R30_ADB_SPINOR 打包路径跟 board-name的关系
+
+======================================================
+• 当前这套 LAN 测试环境里，三条命令是：
+
+  1. 一条命令安装 lap daemon
+  curl -fsSL http://192.168.1.108:8090/api/v4/projects/5/packages/generic/lap-v2-release/latest/install.sh | sudo bash
+
+  安装过程中如果问是否 pair，可以先选 n 跳过，后面再手动配对。
+
+  2. 获取 pair code 的 curl
+  在能访问 pair API 的机器执行：
+
+curl -sX POST http://192.168.1.108:38082/v1/pair-requests \
+-H 'Content-Type: application/json' \
+-d '{"project_id":"ce-plan-test","device_name":"office-board-1"}'
+
+  返回里看：
+
+  {
+    "pair_code": "XXXX-XXXX",
+    "pair_url": "http://192.168.1.108:38082"
+  }
+
+  3. 重新配对命令
+
+  在目标 daemon 机器执行，推荐用安装器生成的 lap-pair：
+
+  sudo /home/<daemon_user>/lap/bin/lap-pair <PAIR_CODE> --saas-url http://192.168.1.108:38082
+
+  例如你的目标机用户是 dpower：
+
+  sudo /home/dpower/lap/bin/lap-pair 4HAQ-64J2 --saas-url http://192.168.1.108:38082
+
+  sudo /home/dpower/lap/bin/lap pair PNRH-WV6H --saas-url http://192.168.252.152:38082
+
+  配对后确认：
+
+  sudo systemctl status lap.service --no-pager -l
+  sudo cat /data/lap/identity.json
+
+  sudo cat /data/lap/identity.json
+  sudo systemctl restart lap.service
+  sudo journalctl -u lap.service -f
+
+==========================================================+
