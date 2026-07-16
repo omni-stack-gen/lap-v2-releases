@@ -1,0 +1,33 @@
+{
+  "version": "v0.1.2",
+  "default_saas_url": "http://192.168.1.108:38082",
+  "asset_base_url": "https://github.com/omni-stack-gen/lap-v2-releases/releases/download/v0.1.2",
+  "assets": [
+    {
+      "id": "lap-daemon-runtime",
+      "kind": "daemon_runtime",
+      "version": "v0.1.2",
+      "source_dir": "/data/lch/work/omni-stack-gen/release-inputs/lap-daemon-runtime",
+      "archive_name": "lap-daemon-runtime.tar.gz",
+      "target": "install_root",
+      "required_paths": [
+        "bin/lap"
+      ]
+    },
+    {
+      "id": "lap-pack-projects",
+      "kind": "pack_projects",
+      "version": "v0.1.2",
+      "source_dir": "/data/lch/work/omni-stack-gen/lap-packages",
+      "archive_name": "lap-pack-projects.tar.gz",
+      "target": "packages_root",
+      "required_paths": [
+        ".venv",
+        "pack.sh",
+        "Pack_FD_F1_R88R30_ADB_SPINOR",
+        "Pack_RL_F1s_DV10_2_SPINOR",
+        "Pack_DP_F1_SMART_PANEL_SPINOR"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,42 @@
+{
+  "assets": [
+    {
+      "archive": "tar.gz",
+      "id": "lap-daemon-runtime",
+      "kind": "daemon_runtime",
+      "required_paths": [
+        "bin/lap"
+      ],
+      "sha256": "0c12f41fd85a6e40e9b2f5fed33ee12cfab33c159dee6bedd8d03c04155fe2db",
+      "strip_components": 0,
+      "target": "install_root",
+      "url": "https://gitee.com/lch8/lap-v2-releases/releases/download/v0.1.2/lap-daemon-runtime.tar.gz",
+      "version": "v0.1.2"
+    },
+    {
+      "archive": "tar.gz",
+      "id": "lap-pack-projects",
+      "kind": "pack_projects",
+      "required_paths": [
+        ".venv",
+        "pack.sh",
+        "Pack_FD_F1_R88R30_ADB_SPINOR",
+        "Pack_RL_F1s_DV10_2_SPINOR",
+        "Pack_DP_F1_SMART_PANEL_SPINOR"
+      ],
+      "sha256": "39fbff4e2acf3f74d89194ec19bdf314b9888137e99d5e71041437d6fdabd35f",
+      "strip_components": 0,
+      "target": "packages_root",
+      "url": "https://gitee.com/lch8/lap-v2-releases/releases/download/v0.1.2/lap-pack-projects.tar.gz",
+      "version": "v0.1.2"
+    }
+  ],
+  "defaults": {
+    "saas_url": "http://192.168.1.108:38082"
+  },
+  "release": {
+    "created_at": "2026-06-04T03:04:06+00:00",
+    "version": "v0.1.2"
+  },
+  "schema_version": 1
+}
