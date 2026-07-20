@@ -89,6 +89,8 @@ class BuildReleaseTests(unittest.TestCase):
         script = RUNTIME_PREPARER.read_text(encoding="utf-8")
         self.assertIn("from lap.assets.manager import AssetManager", script)
         self.assertIn("from lap.cli import main as lap_cli", script)
+        self.assertIn("from lap.identity import Identity", script)
+        self.assertIn('"asset_base_url" not in Identity.model_fields', script)
         self.assertIn("from lap_proto.tool_schemas import AssetEnsureInput", script)
         self.assertIn('{"ensure", "status"}', script)
 

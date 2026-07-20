@@ -54,6 +54,7 @@ from pathlib import Path
 import lap.daemon
 from lap.assets.manager import AssetManager
 from lap.cli import main as lap_cli
+from lap.identity import Identity
 import lap_proto
 from lap_proto.tool_schemas import AssetEnsureInput, AssetEnsureOutput
 import sysconfig
@@ -71,10 +72,14 @@ if not required_asset_commands.issubset(asset_commands):
     missing = sorted(required_asset_commands - asset_commands)
     raise SystemExit(f"asset CLI commands missing from runtime: {missing}")
 
+if "asset_base_url" not in Identity.model_fields:
+    raise SystemExit("paired asset_base_url support is missing from runtime")
+
 print(f"lap_proto import ok: {lap_proto.__file__}")
 print(f"asset manager import ok: {AssetManager.__module__}")
 print(f"asset protocol import ok: {AssetEnsureInput.__name__}/{AssetEnsureOutput.__name__}")
 print(f"asset CLI commands ok: {sorted(required_asset_commands)}")
+print("paired asset_base_url support ok")
 print("lap.daemon import ok")
 PY
 printf 'runtime asset ready: %s\n' "$LAP_RUNTIME_OUT"

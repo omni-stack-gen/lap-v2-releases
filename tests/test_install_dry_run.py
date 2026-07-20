@@ -438,6 +438,38 @@ install_assets {manifest} {scratch}
         self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
         self.assertIn("default pair URL: http://192.168.1.108:38082", result.stdout)
 
+    def test_installer_needs_only_pair_endpoint_for_pre_pair_asset_fallback(
+        self,
+    ) -> None:
+        pair_url = "http://192.168.252.152:39182"
+        env = {
+            **os.environ,
+            "LAP_INSTALL_DRY_RUN": "1",
+            "LAP_RELEASE_MANIFEST_URL": f"file://{EXAMPLE}",
+            "LAP_PAIR_API_URL": pair_url,
+            "SUDO_USER": os.environ.get("USER", "laptest"),
+        }
+        env.pop("LAP_SAAS_URL", None)
+        answers = "\n\n\n\n\n\ny\nn\n"
+
+        result = subprocess.run(
+            ["bash", str(INSTALLER)],
+            input=answers,
+            capture_output=True,
+            text=True,
+            env=env,
+            check=False,
+            timeout=20,
+        )
+
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        self.assertIn(f"default pair URL: {pair_url}", result.stdout)
+        self.assertIn(f"default SaaS URL: {pair_url}", result.stdout)
+        self.assertIn(
+            f"runtime asset manifest: {pair_url}/v1/assets/lap-release/manifest.json",
+            result.stdout,
+        )
+
     def test_installer_can_pin_release_tag(self) -> None:
         env = {
             **os.environ,
@@ -478,7 +510,7 @@ install_assets {manifest} {scratch}
         self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
         self.assertEqual(
             result.stdout.strip(),
-            "https://gitee.com/lch8/lap-v2-releases/releases/download/v0.1.3/manifest.json",
+            "https://gitee.com/lch8/lap-v2-releases/releases/download/v0.1.4/manifest.json",
         )
 
     def test_installer_gitee_source_with_pinned_version(self) -> None:

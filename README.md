@@ -14,53 +14,42 @@ host into the expected LAP v2 runtime shape:
 - on-demand SoC toolchains under the selected toolchain root
 - `lap.service` managed by systemd
 
-For the current LAN test stack, keep these endpoints distinct:
+For the current LAN test stack, the installer operator only needs the pair HTTP
+URL. The pair response advertises and persists the asset and WebSocket endpoints:
 
-- SaaS asset HTTP URL: `http://192.168.1.108:18000`
-- pair HTTP URL: `http://192.168.1.108:38082`
-- daemon WebSocket endpoint returned after pairing: `ws://192.168.1.108:38081/v2/wss`
+- install/pair endpoint: `http://192.168.1.108:38082`
+- SaaS asset HTTP URL returned by pair JSON: `http://192.168.1.108:18000`
+- daemon WebSocket endpoint returned by pair JSON: `ws://192.168.1.108:38081/v2/wss`
 - MCP HTTP endpoint for `lap_agent`: `http://192.168.1.108:38080/mcp`
 
 ## LAN test: install → pair → restart → logs
 
 ### 1. Install the daemon (one command)
 
-By default the installer asks for the SaaS asset HTTP URL, downloads the
-release manifest from SaaS, installs only the daemon runtime, and saves the
-reachable SaaS URL and local roots for later on-demand board and SoC assets:
-
-```text
-<SaaS asset URL>/v1/assets/lap-release/manifest.json
-```
-
-For the current LAN stack:
+The recommended flow downloads the installer, bootstrap manifest, and daemon
+runtime from the GitHub release. The command has one LAN address: the pair
+endpoint.
 
 ```bash
-curl -fsSL https://github.com/omni-stack-gen/lap-v2-releases/releases/download/v0.1.3/install.sh \
-  | sudo env LAP_SAAS_URL="http://192.168.1.108:18000" \
+curl -fsSL https://github.com/omni-stack-gen/lap-v2-releases/releases/download/v0.1.4/install.sh \
+  | sudo env LAP_RELEASE_SOURCE=github \
              LAP_PAIR_API_URL="http://192.168.1.108:38082" \
              LAP_INSTALL_SLINT_PREVIEW=1 bash
 ```
 
-To fetch the daemon bootstrap manifest and runtime from the public GitHub
-release, set `LAP_RELEASE_SOURCE=github`. Managed Pack and toolchain requests
-still use the SaaS URL persisted by the installer:
-
-```bash
-curl -fsSL https://github.com/omni-stack-gen/lap-v2-releases/releases/download/v0.1.3/install.sh \
-  | sudo env LAP_RELEASE_SOURCE=github \
-             LAP_SAAS_URL="http://192.168.1.108:18000" \
-             LAP_INSTALL_SLINT_PREVIEW=1 bash
-```
+Do not set `LAP_SAAS_URL` for this flow. `POST /v1/pair` returns the canonical
+`asset_base_url`; LAP stores it in the identity and prefers it for later Pack
+and toolchain downloads. The pair endpoint is only the pre-pair compatibility
+fallback.
 
 In China (or when GitHub is slow/blocked), fetch the daemon bootstrap from the
 Gitee mirror with `LAP_RELEASE_SOURCE=gitee`. Runtime Pack and toolchain bytes
 still come through the SaaS asset facade:
 
 ```bash
-curl -fsSL https://gitee.com/lch8/lap-v2-releases/releases/download/v0.1.3/install.sh \
+curl -fsSL https://gitee.com/lch8/lap-v2-releases/releases/download/v0.1.4/install.sh \
   | sudo env LAP_RELEASE_SOURCE=gitee \
-             LAP_SAAS_URL="http://192.168.1.108:18000" \
+             LAP_PAIR_API_URL="http://192.168.1.108:38082" \
              LAP_INSTALL_SLINT_PREVIEW=1 bash
 ```
 
@@ -70,7 +59,7 @@ the daemon bootstrap manifest and archive base URL:
 ```bash
 curl -fsSL "http://192.168.1.108:8090/api/v4/projects/5/packages/generic/lap-v2-release/latest/install.sh" \
   | sudo env LAP_RELEASE_PACKAGE_BASE="http://192.168.1.108:8090/api/v4/projects/5/packages/generic/lap-v2-release" \
-             LAP_SAAS_URL="http://192.168.1.108:18000" \
+             LAP_PAIR_API_URL="http://192.168.1.108:38082" \
              LAP_INSTALL_SLINT_PREVIEW=1 bash
 ```
 
@@ -121,7 +110,9 @@ sudo journalctl -u lap.service -f         # live logs
 Customer-facing install shape:
 
 ```bash
-curl -fsSL https://github.com/omni-stack-gen/lap-v2-releases/releases/download/v0.1.3/install.sh | sudo bash
+curl -fsSL https://github.com/omni-stack-gen/lap-v2-releases/releases/download/v0.1.4/install.sh \
+  | sudo env LAP_RELEASE_SOURCE=github \
+             LAP_PAIR_API_URL=http://<omnistack-host>:38082 bash
 ```
 
 The customer-facing release project should only expose install docs and release

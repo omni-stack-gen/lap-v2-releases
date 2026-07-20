@@ -12,53 +12,40 @@ LAP v2 守护进程部署的发布资产与安装器。
 - 按需落地的 SoC toolchain 位于安装时选择的 toolchain 根目录
 - `lap.service` 由 systemd 托管
 
-当前 LAN 测试栈下，保持以下端点互不混淆：
+当前 LAN 测试栈下，安装者只需要知道配对 HTTP URL。配对响应会把资产入口
+和 WebSocket 入口下发并持久化到 LAP identity：
 
-- SaaS 资产 HTTP URL：`http://192.168.1.108:18000`
-- 配对 HTTP URL：`http://192.168.1.108:38082`
-- 配对后返回的守护进程 WebSocket 端点：`ws://192.168.1.108:38081/v2/wss`
+- 安装/配对入口：`http://192.168.1.108:38082`
+- 配对 JSON 下发的 SaaS 资产 HTTP URL：`http://192.168.1.108:18000`
+- 配对 JSON 下发的守护进程 WebSocket 端点：`ws://192.168.1.108:38081/v2/wss`
 - 供 `lap_agent` 使用的 MCP HTTP 端点：`http://192.168.1.108:38080/mcp`
 
 ## LAN 测试：安装 → 配对 → 重启 → 看日志
 
 ### 1. 安装守护进程（一条命令）
 
-默认情况下，安装器会询问 SaaS 资产 HTTP URL，从 SaaS 下载 release
-manifest，只安装 daemon runtime，并把 manifest 保存下来供后续按工程下载
-板级资产，同时持久化可访问的 SaaS URL 和本地资产根目录：
-
-```text
-<SaaS asset URL>/v1/assets/lap-release/manifest.json
-```
-
-当前 LAN 栈示例：
+推荐从 GitHub release 获取安装器、bootstrap manifest 和 daemon runtime。
+命令中只提供一个 LAN 地址，即配对入口：
 
 ```bash
-curl -fsSL https://github.com/omni-stack-gen/lap-v2-releases/releases/download/v0.1.3/install.sh \
-  | sudo env LAP_SAAS_URL="http://192.168.1.108:18000" \
+curl -fsSL https://github.com/omni-stack-gen/lap-v2-releases/releases/download/v0.1.4/install.sh \
+  | sudo env LAP_RELEASE_SOURCE=github \
              LAP_PAIR_API_URL="http://192.168.1.108:38082" \
              LAP_INSTALL_SLINT_PREVIEW=1 bash
 ```
 
-如需从公开 GitHub release 获取 daemon 启动 manifest 和 runtime，设置
-`LAP_RELEASE_SOURCE=github`。运行期 Pack/toolchain 仍使用安装器持久化的
-SaaS URL：
-
-```bash
-curl -fsSL https://github.com/omni-stack-gen/lap-v2-releases/releases/download/v0.1.3/install.sh \
-  | sudo env LAP_RELEASE_SOURCE=github \
-             LAP_SAAS_URL="http://192.168.1.108:18000" \
-             LAP_INSTALL_SLINT_PREVIEW=1 bash
-```
+不需要设置 `LAP_SAAS_URL`。配对时 `POST /v1/pair` 返回
+`asset_base_url`；LAP 将它写入 identity，后续 Pack/toolchain 下载优先使用
+该地址。安装期的配对入口只作为配对前兼容 fallback。
 
 中国大陆（或 GitHub 慢/不通时），可用 `LAP_RELEASE_SOURCE=gitee` 从
 Gitee 获取 daemon 启动包。运行期 Pack/toolchain 字节仍经过 SaaS 资产
 facade：
 
 ```bash
-curl -fsSL https://gitee.com/lch8/lap-v2-releases/releases/download/v0.1.3/install.sh \
+curl -fsSL https://gitee.com/lch8/lap-v2-releases/releases/download/v0.1.4/install.sh \
   | sudo env LAP_RELEASE_SOURCE=gitee \
-             LAP_SAAS_URL="http://192.168.1.108:18000" \
+             LAP_PAIR_API_URL="http://192.168.1.108:38082" \
              LAP_INSTALL_SLINT_PREVIEW=1 bash
 ```
 
@@ -68,7 +55,7 @@ manifest 和 runtime 压缩包地址：
 ```bash
 curl -fsSL "http://192.168.1.108:8090/api/v4/projects/5/packages/generic/lap-v2-release/latest/install.sh" \
   | sudo env LAP_RELEASE_PACKAGE_BASE="http://192.168.1.108:8090/api/v4/projects/5/packages/generic/lap-v2-release" \
-             LAP_SAAS_URL="http://192.168.1.108:18000" \
+             LAP_PAIR_API_URL="http://192.168.1.108:38082" \
              LAP_INSTALL_SLINT_PREVIEW=1 bash
 ```
 
@@ -111,7 +98,9 @@ sudo journalctl -u lap.service -f         # 实时日志
 面向客户的安装形态：
 
 ```bash
-curl -fsSL https://github.com/omni-stack-gen/lap-v2-releases/releases/download/v0.1.3/install.sh | sudo bash
+curl -fsSL https://github.com/omni-stack-gen/lap-v2-releases/releases/download/v0.1.4/install.sh \
+  | sudo env LAP_RELEASE_SOURCE=github \
+             LAP_PAIR_API_URL=http://<omnistack-host>:38082 bash
 ```
 
 面向客户的发布项目应只暴露安装文档与发布产物。源码与原始构建输入留在私有/内部仓库中。

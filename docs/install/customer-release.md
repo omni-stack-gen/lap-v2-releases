@@ -3,37 +3,35 @@
 This is the customer-facing distribution shape. Customers receive one install
 command and do not need access to the source/build repository.
 
-## Install v0.1.3
+## Install v0.1.4
 
 ```bash
-curl -fsSL https://github.com/omni-stack-gen/lap-v2-releases/releases/download/v0.1.3/install.sh \
-  | sudo env LAP_SAAS_URL=http://<saas-host>:18000 bash
+curl -fsSL https://github.com/omni-stack-gen/lap-v2-releases/releases/download/v0.1.4/install.sh \
+  | sudo env LAP_RELEASE_SOURCE=github \
+             LAP_PAIR_API_URL=http://<omnistack-host>:38082 bash
 ```
 
-If the pair API is served from a different host or port, also set
-`LAP_PAIR_API_URL=http://<pair-host>:38082`; this only changes the default shown
-when pairing, not the asset manifest URL.
+This command exposes one customer-specific endpoint: the pair API. Do not set
+`LAP_SAAS_URL` in the normal public-release flow.
 
-The installer script comes from the GitHub release. By default it downloads
-`manifest.json` from the SaaS asset endpoint:
+The installer script, bootstrap manifest, and daemon runtime come from the
+GitHub release. During pairing, `POST /v1/pair` returns both the daemon
+WebSocket endpoint and the OmniStack managed-asset facade:
 
 ```text
-http://<saas-host>:18000/v1/assets/lap-release/manifest.json
+asset_base_url=http://<omnistack-host>:18000
 ```
 
-The SaaS manifest points back to SaaS download URLs for daemon runtime, pack
-projects, and toolchains. The installer installs the daemon runtime, caches the
-bootstrap manifest, persists the runtime SaaS manifest URL and asset roots,
-writes `lap.service`, and
-optionally pairs the daemon during the same flow. Pack projects and toolchains
-remain on-demand assets: runtime flows download the one required by the
-connected board or compile target instead of installing every board package up
-front.
+LAP persists that value in `identity.json` and prefers it over the install-time
+fallback for Pack and toolchain downloads. The installer installs the daemon
+runtime, caches the bootstrap manifest, writes `lap.service`, and optionally
+pairs the daemon during the same flow. Pack projects and toolchains remain
+on-demand assets.
 
 The daemon bootstrap source and runtime asset source are separate. GitHub,
 Gitee, or a private release mirror may provide `install.sh` and the daemon
-runtime archive. After installation, selector-specific Pack and toolchain
-metadata and bytes always use the configured SaaS facade:
+runtime archive. After pairing, selector-specific Pack and toolchain metadata
+and bytes use the facade advertised by the pair response:
 
 ```text
 <SaaS base URL>/v1/assets/lap-release/manifest.json
@@ -48,8 +46,9 @@ sudo -u <daemon-user> -H <install-root>/bin/lap assets ensure --board <manifest.
 sudo -u <daemon-user> -H <install-root>/bin/lap assets status --soc F1 --json
 ```
 
-The CLI reads the asset URL, roots, and expected UID persisted by the installer
-in `<state-dir>/release-source.env`. Set `LAP_STATE_DIR=<state-dir>` when a
+The CLI first reads the paired asset URL from `<state-dir>/identity.json`.
+Install-time values in `<state-dir>/release-source.env` remain a compatibility
+fallback for older pair servers. Set `LAP_STATE_DIR=<state-dir>` when a
 non-default state directory was selected.
 
 `--soc` resolves one SoC toolchain. `--board` accepts the board manifest's
@@ -86,11 +85,12 @@ USB serial adapters, board USB/RDM VID `33c3`, and Android ADB interface
 classes. Windows or VM USB passthrough still has to expose the devices to Linux
 first.
 
-During pairing, enter the SaaS pair HTTP URL, not the daemon WebSocket URL. In
+During pairing, enter the pair HTTP URL, not the daemon WebSocket URL. In
 the current LAN test stack:
 
 ```text
-SaaS HTTP URL:          http://192.168.1.108:38082
+Pair HTTP URL:          http://192.168.1.108:38082
+Asset URL from JSON:    http://192.168.1.108:18000
 Daemon WebSocket URL:   ws://192.168.1.108:38081/v2/wss
 lap_agent MCP URL:      http://192.168.1.108:38080/mcp
 ```
@@ -112,10 +112,10 @@ service.
 ## Pin A Version
 
 ```bash
-curl -fsSL https://github.com/omni-stack-gen/lap-v2-releases/releases/download/v0.1.3/install.sh \
+curl -fsSL https://github.com/omni-stack-gen/lap-v2-releases/releases/download/v0.1.4/install.sh \
   | sudo env LAP_RELEASE_SOURCE=github \
-             LAP_DAEMON_VERSION=v0.1.3 \
-             LAP_SAAS_URL=http://<saas-host>:18000 bash
+             LAP_DAEMON_VERSION=v0.1.4 \
+             LAP_PAIR_API_URL=http://<omnistack-host>:38082 bash
 ```
 
 When `LAP_RELEASE_SOURCE=github`, `LAP_DAEMON_VERSION` changes the manifest URL to:
@@ -129,9 +129,9 @@ https://github.com/omni-stack-gen/lap-v2-releases/releases/download/<version>/ma
 Use this only for internal testing or private customer mirrors:
 
 ```bash
-curl -fsSL https://github.com/omni-stack-gen/lap-v2-releases/releases/download/v0.1.3/install.sh \
+curl -fsSL https://github.com/omni-stack-gen/lap-v2-releases/releases/download/v0.1.4/install.sh \
   | sudo env LAP_RELEASE_PACKAGE_BASE=http://<gitlab-host>/api/v4/projects/<project-id>/packages/generic/<package> \
-             LAP_SAAS_URL=http://<saas-host>:18000 bash
+             LAP_PAIR_API_URL=http://<omnistack-host>:38082 bash
 ```
 
 For other mirrors, override the exact release directory URL directly:
@@ -139,7 +139,7 @@ For other mirrors, override the exact release directory URL directly:
 ```bash
 curl -fsSL <mirror>/install.sh \
   | sudo env LAP_RELEASE_BASE_URL=<mirror>/<version> \
-             LAP_SAAS_URL=http://<saas-host>:18000 bash
+             LAP_PAIR_API_URL=http://<omnistack-host>:38082 bash
 ```
 
 ## What Customers Can See
