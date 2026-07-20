@@ -13,30 +13,13 @@
       "target": "install_root",
       "url": "https://gitee.com/lch8/lap-v2-releases/releases/download/v0.1.4/lap-daemon-runtime.tar.gz",
       "version": "v0.1.4"
-    },
-    {
-      "archive": "tar.gz",
-      "id": "lap-pack-projects",
-      "kind": "pack_projects",
-      "required_paths": [
-        ".venv",
-        "pack.sh",
-        "Pack_FD_F1_R88R30_ADB_SPINOR",
-        "Pack_RL_F1s_DV10_2_SPINOR",
-        "Pack_DP_F1_SMART_PANEL_SPINOR"
-      ],
-      "sha256": "51d94125d6c2244ec561e7299f108f3831277a368beb27de7d4ed0e49a958f9b",
-      "strip_components": 0,
-      "target": "packages_root",
-      "url": "https://gitee.com/lch8/lap-v2-releases/releases/download/v0.1.4/lap-pack-projects.tar.gz",
-      "version": "v0.1.4"
     }
   ],
   "defaults": {
     "saas_url": "http://127.0.0.1:18000"
   },
   "release": {
-    "created_at": "2026-07-20T15:31:09+00:00",
+    "created_at": "2026-07-20T16:44:31+00:00",
     "version": "v0.1.4"
   },
   "schema_version": 1

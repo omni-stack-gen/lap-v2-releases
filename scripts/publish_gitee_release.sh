@@ -37,7 +37,6 @@ release_assets() {
     "manifest.json"
     "SHA256SUMS"
     "lap-daemon-runtime.tar.gz"
-    "lap-pack-projects.tar.gz"
   )
   local asset part
   for asset in "${base_assets[@]}"; do

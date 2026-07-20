@@ -140,6 +140,44 @@ class BuildReleaseTests(unittest.TestCase):
             self.assertIn("manifest.json", sums)
             self.assertIn("lap-pack-projects.tar.gz", sums)
 
+    def test_build_release_allows_runtime_only_bootstrap(self) -> None:
+        """Pack/toolchain archives are managed by SaaS, not the public release."""
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            runtime, pack, toolchains = _make_source_tree(tmp_path / "src")
+            config_path = _config(tmp_path, runtime, pack, toolchains)
+            config = json.loads(config_path.read_text(encoding="utf-8"))
+            config["assets"] = [
+                asset for asset in config["assets"] if asset["kind"] == "daemon_runtime"
+            ]
+            config_path.write_text(json.dumps(config), encoding="utf-8")
+            out_dir = tmp_path / "dist"
+
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    str(BUILDER),
+                    "--config",
+                    str(config_path),
+                    "--out-dir",
+                    str(out_dir),
+                ],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            manifest = json.loads(
+                (out_dir / "v-test" / "manifest.json").read_text(encoding="utf-8")
+            )
+            self.assertEqual(
+                [asset["kind"] for asset in manifest["assets"]], ["daemon_runtime"]
+            )
+            self.assertFalse(
+                (out_dir / "v-test" / "lap-pack-projects.tar.gz").exists()
+            )
+
     def test_validate_sources_rejects_wrong_pack_shape(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             tmp_path = Path(tmp)

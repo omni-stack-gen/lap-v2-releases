@@ -114,7 +114,9 @@ def load_config(path: Path) -> ReleaseConfig:
             )
         )
 
-    missing = {"daemon_runtime", "pack_projects"} - seen_kinds
+    # Public bootstrap releases only require the daemon runtime. Board Pack and
+    # toolchain assets are selected and served by SaaS/PocketBase after pairing.
+    missing = {"daemon_runtime"} - seen_kinds
     if missing:
         raise BuildConfigError(f"missing required asset kinds: {sorted(missing)}")
 

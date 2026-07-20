@@ -40,6 +40,22 @@ class ManifestValidatorTests(unittest.TestCase):
             )
         self.assertEqual(result.returncode, 0, result.stderr)
 
+    def test_pack_project_asset_is_managed_outside_bootstrap_manifest(self) -> None:
+        data = json.loads(EXAMPLE.read_text(encoding="utf-8"))
+        data["assets"] = [
+            asset for asset in data["assets"] if asset["kind"] == "daemon_runtime"
+        ]
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "manifest.json"
+            path.write_text(json.dumps(data), encoding="utf-8")
+            result = subprocess.run(
+                [sys.executable, str(VALIDATOR), str(path)],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+        self.assertEqual(result.returncode, 0, result.stderr)
+
 
 if __name__ == "__main__":
     unittest.main()
